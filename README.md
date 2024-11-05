@@ -1,5 +1,5 @@
 # ytdle
-A simple python Youtube Downloader &amp; Thumbnail embedder. (kinda works on other websites like vidlii etc.)
+A simple python Media Downloader &amp; Thumbnail embedder. (kinda works on other websites like vidlii tiktok etc.)
 
 # How to use/compile to exe?
 > ffmpeg is required so if you want to run it as a python script, additionally to other requirements you have to have ffmpeg either as a system PATH or an .exe in the same directory.
