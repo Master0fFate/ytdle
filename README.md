@@ -1,4 +1,4 @@
-# YTDLE Media Downloader
+# YTDLE - Media Downloader
 
 ![YTDLE - Media Downloader](https://cdn.discordapp.com/attachments/1004491384587288647/1337385712970108928/image.png?ex=67a74101&is=67a5ef81&hm=e08145962526ef5fedae5467e4d12f4c3b17058da5f7d4bf04f0a591cc498c79&)
 
@@ -10,7 +10,7 @@ A modern, user-friendly desktop application for downloading media content from v
 - 🎵 Convert videos to MP3 with thumbnail embedding
 - 📊 Real-time download progress tracking
 - 🎨 Modern dark-themed UI
-- 📱 Multiple quality options (up to 1080p)
+- 📱 Multiple quality options
 - 🎯 Smart filename handling to avoid Windows path limitations
 - 📂 Customizable download directory
 - 🖥️ Clean, frameless window design
