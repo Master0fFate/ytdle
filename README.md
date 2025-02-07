@@ -6,7 +6,7 @@ A modern, user-friendly desktop application for downloading media content from v
 
 ## Features
 
-- 🎥 Download videos from multiple platforms
+- 🎥 Download videos or playlists from multiple platforms
 - 🎵 Convert videos to MP3 with thumbnail embedding
 - 📊 Real-time download progress tracking
 - 🎨 Modern dark-themed UI
