@@ -31,4 +31,6 @@ If using pyinstaller/auto-py-to-exe make sure to include ffmpeg.exe as an additi
 
 Releases: [CLICK](https://github.com/Master0fFate/ytdle/releases)
 
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/Master0fFate/ytdle?utm_source=oss&utm_medium=github&utm_campaign=Master0fFate%2Fytdle&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+
 
