@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# YTDLE_v2.py — PyQt5 + yt_dlp GUI Downloader
+# YTDLE.py — PyQt5 + yt_dlp GUI Downloader
 # Python 3.8+ required
 
 import os
@@ -227,8 +227,15 @@ def sanitize_template(template: str) -> str:
     return t or "%(title).150s"
 
 
-def build_yt_dlp_options(opts: DownloadOptions, progress_hook: Callable) -> Dict:
-    """Construct yt_dlp options dict from UI options."""
+def build_yt_dlp_options(opts: DownloadOptions, progress_hook: Callable, attempt: int = 0) -> Dict:
+    """
+    Construct yt_dlp options dict from UI options.
+    
+    Args:
+        opts: Download options from UI
+        progress_hook: Progress callback function
+        attempt: Attempt number (0 = first try with specific format, 1+ = fallback formats)
+    """
     outtmpl = os.path.join(opts.directory, f"{sanitize_template(opts.outtmpl_template)}.%(ext)s")
 
     base: Dict = {
@@ -259,17 +266,31 @@ def build_yt_dlp_options(opts: DownloadOptions, progress_hook: Callable) -> Dict
             "writethumbnail": True,
         })
     else:
-        if opts.quality.lower() == "best":
-            fmt = "bv*[vcodec^=avc1]+ba[acodec^=mp4a]/b[ext=mp4]/best"
+        # Progressive fallback for MP4 formats
+        if attempt == 0:
+            # First attempt: Try with specific codec requirements
+            if opts.quality.lower() == "best":
+                fmt = "bv*+ba/best"  # More flexible than requiring specific codecs
+            else:
+                try:
+                    h = int("".join(filter(str.isdigit, opts.quality)))
+                except ValueError:
+                    h = 1080
+                fmt = f"bv*[height<={h}]+ba/b[height<={h}]/best[height<={h}]/best"
+        elif attempt == 1:
+            # Second attempt: Simple height-based format without codec requirements
+            if opts.quality.lower() == "best":
+                fmt = "best[ext=mp4]/best"
+            else:
+                try:
+                    h = int("".join(filter(str.isdigit, opts.quality)))
+                except ValueError:
+                    h = 1080
+                fmt = f"best[height<={h}][ext=mp4]/best[height<={h}]/best"
         else:
-            try:
-                h = int("".join(filter(str.isdigit, opts.quality)))
-            except ValueError:
-                h = 1080
-            fmt = (
-                f"bv*[height<={h}][vcodec^=avc1]+ba[acodec^=mp4a]/"
-                f"b[height<={h}][ext=mp4]/best[height<={h}]"
-            )
+            # Final fallback: Just use best available
+            fmt = "best"
+            
         base.update({
             "format": fmt,
             "merge_output_format": "mp4",
@@ -349,6 +370,56 @@ class VideoDownloadWorker(QObject):
         except Exception as e:
             self.log.emit(f"Progress hook error: {e!r}")
 
+    def _download_with_fallback(self, url: str) -> bool:
+        """
+        Try to download with progressively simpler format strings.
+        Returns True on success, False on failure.
+        """
+        max_attempts = 3 if not self.options.is_mp3 else 1
+        
+        for attempt in range(max_attempts):
+            if self._cancel_event.is_set():
+                raise RuntimeError("User cancelled")
+                
+            try:
+                ydl_opts = build_yt_dlp_options(self.options, self._progress_hook, attempt)
+                
+                if attempt > 0:
+                    self.log.emit(f"Retrying with fallback format (attempt {attempt + 1}/{max_attempts})")
+                
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    # Try to get video info first
+                    try:
+                        info = ydl.extract_info(url, download=False)
+                        title = info.get("title") or "Unknown title"
+                        uploader = info.get("uploader") or info.get("channel") or "Unknown"
+                        dur = info.get("duration")
+                        dur_str = format_eta(dur) if dur else "?"
+                        self.log.emit(f"Info: {title} | Uploader: {uploader} | Duration: {dur_str}")
+                    except Exception as ie:
+                        self.log.emit(f"Info probe failed: {ie}")
+                    
+                    # Attempt download
+                    ydl.download([url])
+                    return True
+                    
+            except Exception as e:
+                error_str = str(e)
+                
+                # Check if it's a format error
+                if "Requested format is not available" in error_str or "No video formats found" in error_str:
+                    if attempt < max_attempts - 1:
+                        self.log.emit(f"Format not available, trying fallback...")
+                        continue
+                    else:
+                        self.log.emit(f"All format attempts failed for {url}")
+                        raise
+                        
+                # For other errors, don't retry
+                raise
+                
+        return False
+
     def run(self) -> None:
         """Execute the download queue sequentially."""
         success_count, fail_count = 0, 0
@@ -375,36 +446,19 @@ class VideoDownloadWorker(QObject):
             self.log.emit(f"Preparing: {url}")
 
             try:
-                ydl_opts = build_yt_dlp_options(self.options, self._progress_hook)
                 os.makedirs(self.options.directory, exist_ok=True)
-
-                opts_dbg = {
-                    "format": ydl_opts.get("format"),
-                    "merge_output_format": ydl_opts.get("merge_output_format"),
-                    "outtmpl": ydl_opts.get("outtmpl"),
-                    "noplaylist": ydl_opts.get("noplaylist"),
-                    "restrictfilenames": ydl_opts.get("restrictfilenames"),
-                    "postprocessors": ydl_opts.get("postprocessors"),
-                }
-                self.log.emit(f"Options: {opts_dbg}")
-
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    try:
-                        info = ydl.extract_info(url, download=False)
-                        title = info.get("title") or "Unknown title"
-                        uploader = info.get("uploader") or info.get("channel") or "Unknown"
-                        dur = info.get("duration")
-                        dur_str = format_eta(dur) if dur else "?"
-                        self.log.emit(f"Info: {title} | Uploader: {uploader} | Duration: {dur_str}")
-                    except Exception as ie:
-                        self.log.emit(f"Info probe failed: {ie}")
-
-                    ydl.download([url])
-
-                success_count += 1
-                final_path = self._current_output_file or "Completed"
-                self.itemFinished.emit(url, True, final_path)
-                self.log.emit(f"Finished: {final_path}")
+                
+                # Try download with fallback
+                if self._download_with_fallback(url):
+                    success_count += 1
+                    final_path = self._current_output_file or "Completed"
+                    self.itemFinished.emit(url, True, final_path)
+                    self.log.emit(f"Finished: {final_path}")
+                else:
+                    fail_count += 1
+                    self.itemFinished.emit(url, False, "Download failed after all attempts")
+                    self.log.emit(f"Failed after all attempts: {url}")
+                    
             except Exception as e:
                 if str(e) == "User cancelled":
                     self.itemFinished.emit(url, False, "Cancelled")
@@ -541,7 +595,7 @@ class MainWindow(QMainWindow):
         url_label = QLabel("URLs:", self)
         url_label.setToolTip("Paste one URL per line. You can also drag & drop links here.")
         root.addWidget(url_label, 0)
-        self.url_input = Qplain = QPlainTextEdit(self)
+        self.url_input = QPlainTextEdit(self)
         self.url_input.setPlaceholderText("Enter one URL per line (YouTube, Twitter, TikTok, etc.)")
         self.url_input.setTabChangesFocus(True)
         self.url_input.setMinimumHeight(96)
