@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# YTDLE.py — PyQt5 + yt_dlp GUI Downloader
-# Python 3.8+ required
 
 import os
 import sys
@@ -9,17 +7,17 @@ import threading
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
-from PyQt5.QtCore import (
+from PySide6.QtCore import (
     Qt,
     QObject,
     QThread,
-    pyqtSignal,
+    Signal,
     QSettings,
     QPoint,
     QUrl,
 )
-from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import (
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
     QWidget,
@@ -44,21 +42,21 @@ import yt_dlp
 
 STYLESHEET = """
 QMainWindow#MainWindow {
-    background-color: #1a1a1a;
-    border: 1px solid #2f2f2f;
+    background-color: #121212;
+    border: 1px solid #2a2a2a;
     border-radius: 10px;
     color: #ffffff;
     font-family: "Segoe UI", Arial, sans-serif;
-    font-size: 10pt;
+    font-size: 9pt;
 }
 
 /* Custom Title Bar */
 #TitleBar {
-    background-color: #222222;
+    background-color: #1e1e1e;
     border-top-left-radius: 10px;
     border-top-right-radius: 10px;
 }
-#TitleBar QLabel { color: #ffffff; font-weight: bold; }
+#TitleBar QLabel { color: #ffffff; font-weight: 600; }
 
 /* Title bar buttons */
 QToolButton#MinimizeButton, QToolButton#CloseButton {
@@ -67,37 +65,37 @@ QToolButton#MinimizeButton, QToolButton#CloseButton {
     padding: 3px 6px;
     border-radius: 4px;
     color: #ffffff;
-    min-height: 20px;
+    min-height: 18px;
 }
-QToolButton#MinimizeButton:hover { background-color: #2f2f2f; }
+QToolButton#MinimizeButton:hover { background-color: #2a2a2a; }
 QToolButton#CloseButton:hover { background-color: #c42b1c; }
 
 /* Inputs (compact) */
 QLineEdit, QComboBox {
-    background-color: #2d2d2d;
-    border: 1px solid #3d3d3d;
+    background-color: #1e1e1e;
+    border: 1px solid #2a2a2a;
     border-radius: 6px;
-    padding: 4px 8px;
+    padding: 4px 6px;
     color: #ffffff;
-    min-height: 28px;
+    min-height: 26px;
 }
 QPlainTextEdit {
-    background-color: #2d2d2d;
-    border: 1px solid #3d3d3d;
+    background-color: #1e1e1e;
+    border: 1px solid #2a2a2a;
     border-radius: 6px;
     padding: 6px 8px;
     color: #ffffff;
 }
-QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus { border: 1px solid #0078d4; }
+QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus { border: 1px solid #0a84ff; }
 
 /* ComboBox - tighter drop-down */
-QComboBox { padding-right: 26px; }
+QComboBox { padding-right: 24px; }
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;
-    width: 24px;
-    border-left: 1px solid #3d3d3d;
-    background-color: #2d2d2d;
+    width: 22px;
+    border-left: 1px solid #2a2a2a;
+    background-color: #1e1e1e;
     border-top-right-radius: 6px;
     border-bottom-right-radius: 6px;
 }
@@ -107,67 +105,76 @@ QComboBox::down-arrow {
     height: 10px;
 }
 QComboBox QAbstractItemView {
-    background-color: #2d2d2d;
+    background-color: #1e1e1e;
     color: #ffffff;
-    border: 1px solid #3d3d3d;
-    selection-background-color: #0078d4;
+    border: 1px solid #2a2a2a;
+    selection-background-color: #1677ff;
     selection-color: #ffffff;
 }
 
-/* Buttons (compact) */
+/* Buttons (compact, fluent-like) */
 QPushButton {
-    background-color: #2d2d2d;
-    border: none;
+    background-color: #1f1f1f;
+    border: 1px solid #2a2a2a;
     border-radius: 6px;
-    padding: 6px 10px;
+    padding: 5px 10px;
     color: #ffffff;
-    min-height: 28px;
+    min-height: 26px;
 }
-QPushButton:hover { background-color: #3a3a3a; }
-QPushButton:pressed { background-color: #444444; }
+QPushButton:hover { background-color: #2a2a2a; }
+QPushButton:pressed { background-color: #343434; }
 
 /* Format toggles (MP3/MP4) */
-QPushButton[formatToggle="true"] { background-color: #2d2d2d; border: 1px solid #3d3d3d; }
-QPushButton[formatToggle="true"]:hover { background-color: #333333; border: 1px solid #4a4a4a; }
-QPushButton[formatToggle="true"]:checked { background-color: #0a86e3; border: 1px solid #1da1f2; color: #ffffff; }
-QPushButton[formatToggle="true"]:checked:hover { background-color: #1791ee; }
+QPushButton[formatToggle="true"] { background-color: #1f1f1f; border: 1px solid #2a2a2a; }
+QPushButton[formatToggle="true"]:hover { background-color: #262626; border: 1px solid #333333; }
+QPushButton[formatToggle="true"]:checked { background-color: #0a84ff; border: 1px solid #1677ff; color: #ffffff; }
+QPushButton[formatToggle="true"]:checked:hover { background-color: #1677ff; }
 
 /* Primary/secondary */
-QPushButton#DownloadButton { background-color: #0078d4; font-weight: bold; min-height: 30px; padding: 8px 14px; }
-QPushButton#DownloadButton:hover { background-color: #0a86e3; }
-QPushButton#CancelButton { background-color: #444444; }
+QPushButton#DownloadButton {
+    background-color: #0a84ff;
+    border: 1px solid #1677ff;
+    font-weight: bold;
+    min-height: 28px;
+    padding: 8px 12px;
+}
+QPushButton#DownloadButton:hover { background-color: #1677ff; }
+QPushButton#CancelButton {
+    background-color: #3a3a3a;
+    border: 1px solid #2a2a2a;
+}
 
 /* Tool buttons */
 QToolButton#BrowseButton, QToolButton#OpenFolderButton {
-    background-color: #2d2d2d;
-    border: 1px solid #3d3d3d;
+    background-color: #1f1f1f;
+    border: 1px solid #2a2a2a;
     border-radius: 6px;
     padding: 4px;
     color: #ffffff;
-    min-height: 24px;
+    min-height: 22px;
 }
-QToolButton#BrowseButton:hover, QToolButton#OpenFolderButton:hover { background-color: #3a3a3a; }
+QToolButton#BrowseButton:hover, QToolButton#OpenFolderButton:hover { background-color: #262626; }
 
 /* Progress (compact) */
 QProgressBar {
-    background-color: #2d2d2d;
-    border: 1px solid #3d3d3d;
+    background-color: #1e1e1e;
+    border: 1px solid #2a2a2a;
     border-radius: 6px;
     text-align: center;
     color: #ffffff;
-    min-height: 18px;
+    min-height: 16px;
 }
-QProgressBar::chunk { background-color: #0078d4; border-radius: 4px; }
+QProgressBar::chunk { background-color: #0a84ff; border-radius: 4px; }
+
 QCheckBox { spacing: 4px; }
 """
 
 
 @dataclass
 class DownloadOptions:
-    """Options to configure yt_dlp for a single run."""
     is_mp3: bool
-    quality: str  # MP3: '320k'/'256k'/'192k'/'128k' | MP4: 'Best'/'2160p'/...
-    outtmpl_template: str  # e.g. "%(title).150s"
+    quality: str
+    outtmpl_template: str
     directory: str
     download_playlist: bool
     restrict_filenames: bool
@@ -178,12 +185,10 @@ class DownloadOptions:
 
 
 def check_ffmpeg_available() -> bool:
-    """Return True if ffmpeg is found on PATH."""
     return shutil.which("ffmpeg") is not None
 
 
 def open_in_file_manager(path: str) -> None:
-    """Open a file or directory in the OS file manager."""
     if not path:
         return
     if not os.path.exists(path):
@@ -192,7 +197,6 @@ def open_in_file_manager(path: str) -> None:
 
 
 def format_eta(eta: Optional[int]) -> str:
-    """Format ETA seconds into H:MM:SS or M:SS."""
     if not eta:
         return ""
     try:
@@ -205,7 +209,6 @@ def format_eta(eta: Optional[int]) -> str:
 
 
 def format_status(speed_bps: Optional[float], eta: Optional[int]) -> str:
-    """Create a human-friendly status string from speed and ETA."""
     parts: List[str] = []
     if speed_bps:
         try:
@@ -222,20 +225,11 @@ def format_status(speed_bps: Optional[float], eta: Optional[int]) -> str:
 
 
 def sanitize_template(template: str) -> str:
-    """Basic sanitization for output template: strip whitespace and ensure non-empty."""
     t = (template or "").strip()
     return t or "%(title).150s"
 
 
 def build_yt_dlp_options(opts: DownloadOptions, progress_hook: Callable, attempt: int = 0) -> Dict:
-    """
-    Construct yt_dlp options dict from UI options.
-    
-    Args:
-        opts: Download options from UI
-        progress_hook: Progress callback function
-        attempt: Attempt number (0 = first try with specific format, 1+ = fallback formats)
-    """
     outtmpl = os.path.join(opts.directory, f"{sanitize_template(opts.outtmpl_template)}.%(ext)s")
 
     base: Dict = {
@@ -301,25 +295,13 @@ def build_yt_dlp_options(opts: DownloadOptions, progress_hook: Callable, attempt
 
 
 class VideoDownloadWorker(QObject):
-    """
-    Worker object to run yt_dlp downloads in a separate QThread.
-
-    Signals:
-      - progress(int): 0..100 for the current item.
-      - status(str): human-readable status for the current item.
-      - itemStarted(str): URL about to start.
-      - itemFinished(str, bool, str): URL, success flag, info (path or error/cancel).
-      - allFinished(int, int): counts of success and fail.
-      - error(str): fatal or item error message (also logged).
-      - log(str): detailed log lines.
-    """
-    progress = pyqtSignal(int)
-    status = pyqtSignal(str)
-    itemStarted = pyqtSignal(str)
-    itemFinished = pyqtSignal(str, bool, str)
-    allFinished = pyqtSignal(int, int)
-    error = pyqtSignal(str)
-    log = pyqtSignal(str)
+    progress = Signal(int)
+    status = Signal(str)
+    itemStarted = Signal(str)
+    itemFinished = Signal(str, bool, str)
+    allFinished = Signal(int, int)
+    error = Signal(str)
+    log = Signal(str)
 
     def __init__(self, urls: List[str], options: DownloadOptions):
         super().__init__()
@@ -328,13 +310,14 @@ class VideoDownloadWorker(QObject):
         self._cancel_event = threading.Event()
         self._current_output_file: Optional[str] = None
         self._last_logged_pct: int = -10
+        self._artifact_candidates: set = set()
+        self._last_item_dir: Optional[str] = None
+        self._last_item_stem: Optional[str] = None
 
     def cancel(self) -> None:
-        """Request cancellation; honored at the next progress hook or URL boundary."""
         self._cancel_event.set()
 
     def _progress_hook(self, d: Dict) -> None:
-        """yt_dlp progress hook. Called frequently; must be light."""
         if self._cancel_event.is_set():
             raise RuntimeError("User cancelled")
 
@@ -359,6 +342,24 @@ class VideoDownloadWorker(QObject):
                 filename = d.get("filename") or d.get("tmpfilename")
                 if filename:
                     self._current_output_file = filename
+                    try:
+                        self._artifact_candidates.add(filename)
+                        self._last_item_dir = os.path.dirname(filename) or self.options.directory
+                        base = os.path.basename(filename)
+                        self._last_item_stem = os.path.splitext(base)[0]
+                    except Exception as _:
+                        pass
+                tmp = d.get("tmpfilename")
+                if tmp:
+                    try:
+                        self._artifact_candidates.add(tmp)
+                        if not self._last_item_dir:
+                            self._last_item_dir = os.path.dirname(tmp) or self.options.directory
+                        if not self._last_item_stem:
+                            base = os.path.basename(tmp)
+                            self._last_item_stem = os.path.splitext(base)[0]
+                    except Exception as _:
+                        pass
 
             elif status == "finished":
                 self.status.emit("Processing downloaded file...")
@@ -366,15 +367,18 @@ class VideoDownloadWorker(QObject):
                 filename = d.get("filename") or self._current_output_file
                 if filename:
                     self._current_output_file = filename
+                    try:
+                        self._artifact_candidates.add(filename)
+                        self._last_item_dir = os.path.dirname(filename) or self.options.directory
+                        base = os.path.basename(filename)
+                        self._last_item_stem = os.path.splitext(base)[0]
+                    except Exception as _:
+                        pass
                 self.progress.emit(100)
         except Exception as e:
             self.log.emit(f"Progress hook error: {e!r}")
 
     def _download_with_fallback(self, url: str) -> bool:
-        """
-        Try to download with progressively simpler format strings.
-        Returns True on success, False on failure.
-        """
         max_attempts = 3 if not self.options.is_mp3 else 1
         
         for attempt in range(max_attempts):
@@ -420,8 +424,68 @@ class VideoDownloadWorker(QObject):
                 
         return False
 
+    def _cleanup_artifacts_for_current_item(self) -> None:
+        try:
+            work_dir = self._last_item_dir or self.options.directory
+            stem = self._last_item_stem
+            candidates = set(self._artifact_candidates)
+            if self._current_output_file:
+                candidates.add(self._current_output_file)
+                try:
+                    tmp_dir = os.path.dirname(self._current_output_file)
+                    tmp_base = os.path.basename(self._current_output_file)
+                    stem = stem or os.path.splitext(tmp_base)[0]
+                    work_dir = tmp_dir or work_dir
+                except Exception:
+                    pass
+
+            if not work_dir:
+                return
+
+            patterns: List[str] = []
+            if stem:
+                patterns.extend([
+                    f"{stem}.part",
+                    f"{stem}.ytdl",
+                    f"{stem}.ytdl.part",
+                    f"{stem}.tmp",
+                    f"{stem}.temp",
+                    f"{stem}-video.*",
+                    f"{stem}-audio.*",
+                    f"{stem}*.m4s",
+                    f"{stem}*.ts",
+                    f"{stem}.webp",
+                    f"{stem}.jpg",
+                    f"{stem}.png",
+                ])
+
+            import glob
+            for pat in patterns:
+                try:
+                    for p in glob.glob(os.path.join(work_dir, pat)):
+                        candidates.add(p)
+                except Exception:
+                    pass
+
+            removed = 0
+            for path in list(candidates):
+                try:
+                    if not path:
+                        continue
+                    if not os.path.isabs(path):
+                        path = os.path.join(work_dir, path)
+                    if os.path.isfile(path):
+                        os.remove(path)
+                        removed += 1
+                        self.log.emit(f"Cleanup: removed {path}")
+                except Exception as e:
+                    self.log.emit(f"Cleanup: failed to remove {path}: {e}")
+            if removed == 0:
+                self.log.emit("Cleanup: no artifacts found to remove")
+        except Exception as e:
+            self.log.emit(f"Cleanup error: {e}")
+
     def run(self) -> None:
-        """Execute the download queue sequentially."""
         success_count, fail_count = 0, 0
         n = len(self.urls)
 
@@ -440,6 +504,9 @@ class VideoDownloadWorker(QObject):
 
             self._last_logged_pct = -10
             self._current_output_file = None
+            self._artifact_candidates = set()
+            self._last_item_dir = None
+            self._last_item_stem = None
             self.itemStarted.emit(url)
             self.status.emit(f"Starting {idx}/{n}")
             self.progress.emit(0)
@@ -456,15 +523,27 @@ class VideoDownloadWorker(QObject):
                     self.log.emit(f"Finished: {final_path}")
                 else:
                     fail_count += 1
+                    try:
+                        self._cleanup_artifacts_for_current_item()
+                    except Exception:
+                        pass
                     self.itemFinished.emit(url, False, "Download failed after all attempts")
                     self.log.emit(f"Failed after all attempts: {url}")
                     
             except Exception as e:
                 if str(e) == "User cancelled":
+                    try:
+                        self._cleanup_artifacts_for_current_item()
+                    except Exception:
+                        pass
                     self.itemFinished.emit(url, False, "Cancelled")
                     self.log.emit(f"Cancelled: {url}")
                     break
                 fail_count += 1
+                try:
+                    self._cleanup_artifacts_for_current_item()
+                except Exception:
+                    pass
                 msg = f"Error downloading {url}: {e}"
                 self.error.emit(msg)
                 self.itemFinished.emit(url, False, str(e))
@@ -474,7 +553,6 @@ class VideoDownloadWorker(QObject):
 
 
 class CustomTitleBar(QWidget):
-    """Frameless window title bar with drag support and minimize/close buttons."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("TitleBar")
@@ -516,14 +594,15 @@ class CustomTitleBar(QWidget):
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
             if self.window():
-                self._drag_offset = event.globalPos() - self.window().frameGeometry().topLeft()
+                pos = event.globalPosition().toPoint()
+                self._drag_offset = pos - self.window().frameGeometry().topLeft()
             event.accept()
         else:
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
         if (event.buttons() & Qt.LeftButton) and self._drag_offset is not None:
-            new_pos = event.globalPos() - self._drag_offset
+            new_pos = event.globalPosition().toPoint() - self._drag_offset
             self.window().move(new_pos)
             event.accept()
         else:
@@ -535,7 +614,6 @@ class CustomTitleBar(QWidget):
 
 
 class MainWindow(QMainWindow):
-    """Main application window."""
     def __init__(self):
         super().__init__()
         self.setObjectName("MainWindow")
@@ -556,12 +634,11 @@ class MainWindow(QMainWindow):
         if not self._ffmpeg_available:
             self._warn_ffmpeg()
 
-    # ---------------- UI setup ----------------
     def _init_ui(self) -> None:
         central = QWidget(self)
         root = QVBoxLayout(central)
-        root.setContentsMargins(14, 8, 14, 10)
-        root.setSpacing(6)
+        root.setContentsMargins(10, 6, 10, 8)
+        root.setSpacing(5)
 
         self.title_bar = CustomTitleBar(self)
         root.addWidget(self.title_bar)
@@ -698,7 +775,7 @@ class MainWindow(QMainWindow):
 
         self.log_output = QPlainTextEdit(self)
         self.log_output.setReadOnly(True)
-        self.log_output.setMinimumHeight(150)
+        self.log_output.setMinimumHeight(120)
         self.log_output.setToolTip("Detailed log of actions, options, progress, and errors.")
         root.addWidget(self.log_output, 1)
 
@@ -720,7 +797,7 @@ class MainWindow(QMainWindow):
         self.mp3_btn.setChecked(True)
         self._update_quality_options()
 
-        self.setMinimumSize(760, 640)
+        self.setMinimumSize(700, 560)
 
     # --------------- Drag & Drop ---------------
     def dragEnterEvent(self, event) -> None:
@@ -902,6 +979,8 @@ class MainWindow(QMainWindow):
     def _cancel_downloads(self) -> None:
         if self._worker:
             self.append_log("Cancellation requested...")
+            self.status_label.setText("Cancelling...")
+            self.cancel_button.setEnabled(False)
             self._worker.cancel()
 
     def _on_progress(self, value: int) -> None:
@@ -975,7 +1054,7 @@ def main() -> None:
     if not win.dir_input.text().strip():
         win.dir_input.setText(win._default_download_dir())
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
