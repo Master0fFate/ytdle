@@ -4,7 +4,7 @@
 
 ![YTDLE - Media Downloader](https://cdn.discordapp.com/attachments/1004491384587288647/1337385712970108928/image.png?ex=67a74101&is=67a5ef81&hm=e08145962526ef5fedae5467e4d12f4c3b17058da5f7d4bf04f0a591cc498c79&)
 
-A modern, user-friendly desktop application for downloading media content from various platforms including YouTube, Twitter, TikTok, and more. Built with Python and PySide6.
+A modern, user-friendly desktop application for downloading media content from various platforms including YouTube, Twitter, TikTok, Nicovideo and more. Built with Python and PySide6.
 
 ## Features
 
