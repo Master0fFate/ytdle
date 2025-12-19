@@ -43,21 +43,8 @@ class CustomTitleBar(QWidget):
         if self._is_dragging and self._start_pos:
             delta = event.globalPosition().toPoint() - self._start_pos
             self.parent.move(self.parent.pos() + delta)
-            # Do not update _start_pos here for relative movement, 
-            # or update it if calculating delta from previous pos.
-            # Usually: 
-            # delta = event.globalPos() - self._start_pos
-            # parent.move(parent.pos() + delta)
-            # self._start_pos = event.globalPos()
-            # Wait, globalPos() is deprecated in PySide6, use globalPosition().toPoint()
-            
-            # Correct logic for dragging:
-            # We want to move the window by the same amount the mouse moved.
-            # But here we are using global position.
-            # Let's use a simpler logic often used.
             pass
 
-    # Re-implementing mouseMoveEvent to be correct
     def mouseMoveEvent(self, event):
         if self._is_dragging and self._start_pos:
             current_pos = event.globalPosition().toPoint()
