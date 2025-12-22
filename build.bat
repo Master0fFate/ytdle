@@ -24,6 +24,15 @@ echo Starting YTDLE Build Process
 echo ========================================================
 echo.
 
+:: Check for icon file
+set "ICON_ARG="
+if exist "icon.ico" (
+    echo [INFO] Found icon.ico, will be used for the executable.
+    set "ICON_ARG=--icon=icon.ico"
+) else (
+    echo [INFO] icon.ico not found, building without custom icon.
+)
+
 :: Build Option Selection
 echo Select Build Type:
 echo 1. Standard (FFmpeg NOT bundled - smaller size, requires ffmpeg.exe nearby)
@@ -64,7 +73,7 @@ echo Building executable...
 :: --collect-all yt_dlp: Ensure all yt-dlp plugins/extractors are included.
 :: --log-level WARN: Reduce noise in the output.
 
-pyinstaller --console --onefile --name "YTDLE" --clean --collect-all yt_dlp %FFMPEG_ARG% --log-level WARN main.py
+pyinstaller --console --onefile --name "YTDLE" --clean --collect-all yt_dlp %FFMPEG_ARG% %ICON_ARG% --log-level WARN main.py
 
 if %errorLevel% equ 0 (
     echo.
