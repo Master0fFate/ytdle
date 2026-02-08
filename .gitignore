@@ -39,9 +39,6 @@ ENV/
 # Logs
 *.log
 
-# Local/Claude files
-.claude/
-
 # Database files (user data, not source)
 *.db
 *.db-journal
