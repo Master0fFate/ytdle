@@ -1,0 +1,11 @@
+# Core dependencies for YTDLE
+
+# Qt bindings for the UI
+PySide6>=6.4.0
+
+# YouTube/video downloading library
+yt-dlp>=2023.12.30
+
+# External downloaders (optional but recommended)
+# aria2c - Install separately: https://github.com/aria2/aria2/releases
+# ffmpeg - Install separately: https://ffmpeg.org/download.html

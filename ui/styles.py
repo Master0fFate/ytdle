@@ -106,7 +106,7 @@ QPushButton#CancelButton {
 }
 
 /* Tool buttons */
-QToolButton#BrowseButton, QToolButton#OpenFolderButton {
+QToolButton#BrowseButton, QToolButton#OpenFolderButton, QToolButton#CookieBrowseButton {
     background-color: #1f1f1f;
     border: 1px solid #2a2a2a;
     border-radius: 6px;
@@ -114,7 +114,7 @@ QToolButton#BrowseButton, QToolButton#OpenFolderButton {
     color: #ffffff;
     min-height: 22px;
 }
-QToolButton#BrowseButton:hover, QToolButton#OpenFolderButton:hover { background-color: #262626; }
+QToolButton#BrowseButton:hover, QToolButton#OpenFolderButton:hover, QToolButton#CookieBrowseButton:hover { background-color: #262626; }
 
 /* Progress (compact) */
 QProgressBar {
@@ -249,5 +249,58 @@ QTabBar::tab:selected {
 }
 QTabBar::tab:hover {
     background-color: #252525;
+}
+
+/* GroupBox Styling */
+QGroupBox {
+    background-color: #1e1e1e;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    margin-top: 12px;
+    padding-top: 8px;
+    color: #ffffff;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 10px;
+    padding: 0 6px;
+    color: #ffffff;
+    font-weight: bold;
+    background-color: #1e1e1e;
+}
+
+/* Help Button */
+QToolButton#HelpButton {
+    background-color: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 12px;
+    font-weight: bold;
+    font-size: 12px;
+    color: #0a84ff;
+    min-width: 24px;
+    max-width: 24px;
+    min-height: 24px;
+    max-height: 24px;
+}
+QToolButton#HelpButton:hover {
+    background-color: #3a3a3a;
+    border-color: #0a84ff;
+}
+
+/* Help Dialog */
+QDialog#HelpDialog {
+    background-color: #121212;
+    color: #ffffff;
+}
+QDialog#HelpDialog QLabel {
+    color: #ffffff;
+}
+QDialog#HelpDialog QTextBrowser {
+    background-color: #1e1e1e;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    color: #ffffff;
+    padding: 10px;
 }
 """

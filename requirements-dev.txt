@@ -1,0 +1,17 @@
+# Development dependencies for YTDLE
+
+# Testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-qt>=4.2.0
+pytest-cov>=4.0.0
+
+# Type checking
+mypy>=1.0.0
+types-PySide6
+
+# Linting
+ruff>=0.1.0
+
+# Build tools
+pyinstaller>=5.0.0

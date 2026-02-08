@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Local/Claude files
+.claude/
+
+# Database files (user data, not source)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Binary files (user provides these)
+ffmpeg.exe
+aria2c.exe
+*.dll
+
+# User data
+.ytdle/
+history.json
+history.json.backup
+
+# OS
+.DS_Store
+Thumbs.db
