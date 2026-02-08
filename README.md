@@ -5,16 +5,18 @@ YTDLE is a modern, cross-platform media downloader built with Python and PySide6
 ## Features
 
 - **Modern UI**: Clean, dark-themed interface designed with PySide6.
+- **Async Download Engine**: High-performance asyncio-based downloader with lower memory overhead and better concurrency.
 - **CLI Mode**: Full command-line interface for headless usage or scripting.
 - **Format Selection**: Easily switch between MP3 (Audio) and MP4 (Video) formats.
 - **Quality Control**: Select specific bitrates for audio or resolution caps for video (up to 4K/8K).
+- **Aria2c Integration**: Optional multi-connection downloading for 3-5x faster speeds.
 - **Custom FFmpeg Args**: Pass custom flags directly to FFmpeg (via GUI or CLI).
 - **Batch Processing**: Download multiple URLs concurrently with a queue system.
 - **Playlist Support**: Option to download entire playlists or channels.
 - **Smart Naming**: Customizable output filename templates (e.g., Uploader - Title).
 - **Robust Error Handling**: Automatic retries and fallback logic for different formats.
 - **Logging**: Detailed file logging for troubleshooting.
-- **Download History**: Persistent history tracking with export to CSV/JSON and retry failed downloads.
+- **Download History**: Persistent SQLite-based history tracking with export and retry failed downloads.
 - **Network Detection**: Real-time network connectivity monitoring with manual check capability.
 - **Download Controls**: Pause, resume, skip, and cancel downloads with thread-safe controls.
 
@@ -22,6 +24,7 @@ YTDLE is a modern, cross-platform media downloader built with Python and PySide6
 
 - **Python 3.10+**
 - **FFmpeg**: Required for audio extraction and format merging. The `ffmpeg.exe` binary must be available in the system PATH or placed alongside the application executable.
+- **Aria2c** (Optional): For multi-connection downloads. Download from [aria2 releases](https://github.com/aria2/aria2/releases).
 
 ## Installation & Running from Source
 
@@ -35,7 +38,6 @@ YTDLE is a modern, cross-platform media downloader built with Python and PySide6
     ```bash
     pip install -r requirements.txt
     ```
-    *(Note: If `requirements.txt` is missing, manually install: `pip install PySide6 yt-dlp`)*
 
 3.  **Run the application**:
     ```bash
@@ -45,7 +47,11 @@ YTDLE is a modern, cross-platform media downloader built with Python and PySide6
 ## Usage
 
 ### Graphical Interface (GUI)
-Run `YTDLE.exe` to launch the modern dark-themed GUI.
+Run `YTDLE.exe` or `python main.py` to launch the modern dark-themed GUI.
+
+**New Options:**
+- **Async Mode**: Enable high-performance asyncio download engine (default: enabled)
+- **Use Aria2c**: Enable multi-connection downloads for faster speeds (requires aria2c binary)
 
 ### Command Line Interface (CLI)
 You can use the **same** executable for CLI operations.
@@ -91,9 +97,11 @@ To build a standalone `.exe` file for Windows, use the provided build script or 
 ### Method 1: Automatic Build Script (Recommended)
 1.  Locate the `build.bat` file in the project root.
 2.  Double-click `build.bat`.
-3.  The script will generate:
-    -   `YTDLE.exe` (Dual Mode: GUI + CLI)
-    For both Standard and Bundled variants.
+3.  Select build type:
+    -   **Standard**: Smaller executable, requires external binaries
+    -   **Standalone**: Bundles FFmpeg for out-of-the-box usage
+    -   **Full Standalone**: Bundles both FFmpeg and Aria2c
+4.  The script will generate `YTDLE.exe` in the `dist` folder.
 
 ### Method 2: Manual Compilation
 
@@ -102,24 +110,49 @@ To build a standalone `.exe` file for Windows, use the provided build script or 
 pyinstaller --console --onefile --name "YTDLE" --clean --collect-all yt_dlp main.py
 ```
 
-**Bundled Build:**
+**Bundled Build (with FFmpeg):**
 ```bash
-pyinstaller --console --onefile --name "YTDLE_bundled" --clean --collect-all yt_dlp --add-binary "ffmpeg.exe;." main.py
+pyinstaller --console --onefile --name "YTDLE" --clean --collect-all yt_dlp --add-binary "ffmpeg.exe;." main.py
 ```
 
-### Note on FFmpeg
+**Full Bundled Build (with FFmpeg and Aria2c):**
+```bash
+pyinstaller --console --onefile --name "YTDLE" --clean --collect-all yt_dlp --add-binary "ffmpeg.exe;." --add-binary "aria2c.exe;." main.py
+```
+
+### Note on External Binaries
 
 - **Standard Build**: The executable is smaller but requires `ffmpeg.exe` to be in the same folder or in your System PATH.
-- **Bundled Build**: The executable is larger but works out-of-the-box on any machine without extra setup.
+- **Standalone Build**: The executable is larger but works out-of-the-box on any machine without extra setup.
+- **Aria2c**: Optional binary for multi-connection downloads. Place `aria2c.exe` alongside the executable or in PATH.
 
 ## Project Structure
 
 - `core/`: Backend logic, configuration, and downloader engine.
-  - `history.py`: Download history tracking with persistent storage.
+  - `async_manager.py`: Asyncio-based download manager for high-performance concurrent downloads.
+  - `database.py`: SQLite database manager for persistent history storage.
+  - `downloader.py`: Legacy threading-based download manager (still supported).
+  - `history.py`: Download history tracking with SQLite backend and JSON fallback.
+  - `config.py`: Configuration dataclasses and options.
   - `errors.py`: Custom exceptions and error classification.
   - `network.py`: Network connectivity monitoring utilities.
 - `ui/`: User interface components, styles, and main window logic.
-  - `components/`: Reusable UI components (History dialog, etc.).
+  - `components/`: Reusable UI components (History dialog, Title bar, etc.).
 - `main.py`: Application entry point (handles both GUI and CLI).
-- `TASK.md`: Implementation roadmap and improvement plan.
-- `YTDLE_old.py`: Archive of the original monolithic script.
+- `build.bat`: Windows build script with multiple build options.
+- `requirements.txt`: Production dependencies.
+- `requirements-dev.txt`: Development dependencies (testing, linting).
+
+## Architecture
+
+YTDLE uses a modular architecture with clear separation of concerns:
+
+**Download Engine**: Choose between legacy threading (`DownloadManager`) or modern asyncio (`AsyncDownloadManager`) based on your needs. The async engine provides better scalability and lower memory usage.
+
+**Storage**: SQLite database with WAL mode for concurrent read/write operations. Automatic migration from legacy JSON format with backup.
+
+**External Tools**: yt-dlp handles the actual downloading, with optional aria2c for multi-connection acceleration and FFmpeg for post-processing.
+
+## License
+
+This project is open source. See the repository for license details.
