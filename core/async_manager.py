@@ -198,6 +198,8 @@ class AsyncDownloadManager:
 
         self._network_monitor = NetworkMonitor()
         self._executor = ThreadPoolExecutor(max_workers=max_concurrent)
+        self._success_count = 0
+        self._fail_count = 0
 
     def cancel(self) -> None:
         """Signal cancellation of all downloads."""
@@ -492,6 +494,7 @@ class AsyncDownloadManager:
             success, error_msg = await self._download_with_fallback(url)
 
             if success:
+                self._success_count += 1
                 final_path = self._current_output_file or "Completed"
                 if self._history:
                     self._history.add_completed(
@@ -505,6 +508,7 @@ class AsyncDownloadManager:
                     self.on_item_finished(url, True, final_path)
                 self._emit_log(f"Finished: {final_path}")
             else:
+                self._fail_count += 1
                 try:
                     self._cleanup_artifacts_for_current_item()
                 except Exception:
@@ -559,6 +563,7 @@ class AsyncDownloadManager:
                 self._emit_log(f"Skipped: {url}")
                 return  # Continue to next item
 
+            self._fail_count += 1
             try:
                 self._cleanup_artifacts_for_current_item()
             except Exception:
@@ -581,7 +586,6 @@ class AsyncDownloadManager:
 
     async def run_async(self) -> tuple[int, int]:
         """Run downloads asynchronously."""
-        success_count, fail_count = 0, 0
         n = len(self.urls)
 
         ydl_ver = "unknown"
@@ -619,11 +623,10 @@ class AsyncDownloadManager:
         # Shutdown executor
         self._executor.shutdown(wait=False)
 
-        # Count results (simplified - actual counting would track per-item results)
         if self.on_all_finished:
-            self.on_all_finished(success_count, fail_count)
+            self.on_all_finished(self._success_count, self._fail_count)
 
-        return success_count, fail_count
+        return self._success_count, self._fail_count
 
     def run(self) -> None:
         """Synchronous entry point for compatibility."""
