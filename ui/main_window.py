@@ -563,10 +563,18 @@ class MainWindow(QMainWindow):
         if path:
             self.cookie_file_input.setText(os.path.normpath(path))
 
+    # Supported browsers by yt-dlp for cookie extraction
+    SUPPORTED_BROWSERS = {"brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi"}
+
     def _get_cookies_from_browser_tuple(self):
         """Build the cookies_from_browser tuple for yt-dlp."""
         browser = self.browser_combo.currentText()
         if browser == "None":
+            return None
+        
+        # Validate browser is supported by yt-dlp
+        if browser.lower() not in self.SUPPORTED_BROWSERS:
+            self.append_log(f"Warning: Browser '{browser}' is not supported by yt-dlp. Use Cookie File instead.")
             return None
         
         profile = self.profile_input.text().strip() or None
@@ -800,8 +808,8 @@ class MainWindow(QMainWindow):
             directory=self.dir_input.text().strip(),
             download_playlist=self.playlist_checkbox.isChecked(),
             restrict_filenames=self.restrict_checkbox.isChecked(),
-            ffmpeg_add_args=f_add,
-            ffmpeg_override_args=f_override,
+            ffmpeg_add_args=f_add if f_add else None,
+            ffmpeg_override_args=f_override if f_override else None,
             cookies_from_browser=self._get_cookies_from_browser_tuple(),
             cookies=self.cookie_file_input.text().strip() or None,
             use_aria2c=use_aria2c,
