@@ -171,12 +171,23 @@ class DatabaseManager:
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            records = data.get("records", [])
+            # Support both legacy list format and dict-with-records format.
+            if isinstance(data, list):
+                records = data
+            elif isinstance(data, dict):
+                records = data.get("records", [])
+            else:
+                logger.warning(f"Unexpected JSON history format at {json_path}; skipping migration")
+                return 0
+
             migrated = 0
 
             with self.get_connection() as conn:
                 for record in records:
                     try:
+                        if not isinstance(record, dict):
+                            logger.warning("Skipping invalid history record (expected object)")
+                            continue
                         conn.execute("""
                             INSERT INTO history
                             (url, title, format, quality, timestamp, output_path,
