@@ -41,12 +41,6 @@ class CustomTitleBar(QWidget):
 
     def mouseMoveEvent(self, event):
         if self._is_dragging and self._start_pos:
-            delta = event.globalPosition().toPoint() - self._start_pos
-            self.parent.move(self.parent.pos() + delta)
-            pass
-
-    def mouseMoveEvent(self, event):
-        if self._is_dragging and self._start_pos:
             current_pos = event.globalPosition().toPoint()
             delta = current_pos - self._start_pos
             self.parent.move(self.parent.pos() + delta)

@@ -9,8 +9,10 @@ memory overhead.
 import asyncio
 import logging
 import os
+import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Set
 
 import yt_dlp
@@ -23,6 +25,19 @@ from core.errors import classify_error, FormatNotAvailableError, DownloadError
 from core.network import NetworkMonitor, NetworkStatus
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DownloadItemContext:
+    """Per-download mutable state isolated from other concurrent workers."""
+    url: str
+    current_output_file: Optional[str] = None
+    last_logged_pct: int = -10
+    artifact_candidates: Set[str] = field(default_factory=set)
+    last_item_dir: Optional[str] = None
+    last_item_stem: Optional[str] = None
+    current_title: Optional[str] = None
+    last_error: str = ""
 
 
 def build_yt_dlp_options_async(
@@ -181,20 +196,14 @@ class AsyncDownloadManager:
         self._skip_current = False
         self._paused = False
         self._pause_event = asyncio.Event()
+        self._pause_event.set()
 
         # Queue and concurrency control
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._active_downloads: Set[asyncio.Task] = set()
 
-        # Per-download state
-        self._current_output_file: Optional[str] = None
-        self._last_logged_pct: int = -10
-        self._artifact_candidates: Set[str] = set()
-        self._last_item_dir: Optional[str] = None
-        self._last_item_stem: Optional[str] = None
-        self._current_title: Optional[str] = None
-        self._current_url: Optional[str] = None
+        self._thread_local = threading.local()
 
         self._network_monitor = NetworkMonitor()
         self._executor = ThreadPoolExecutor(max_workers=max_concurrent)
@@ -213,12 +222,12 @@ class AsyncDownloadManager:
     def pause(self) -> None:
         """Pause downloads."""
         self._paused = True
-        self._pause_event.set()
+        self._pause_event.clear()
 
     def resume(self) -> None:
         """Resume downloads."""
         self._paused = False
-        self._pause_event.clear()
+        self._pause_event.set()
 
     def is_paused(self) -> bool:
         """Check if downloads are paused."""
@@ -246,6 +255,10 @@ class AsyncDownloadManager:
 
     def _progress_hook(self, d: Dict) -> None:
         """Progress hook called by yt-dlp (runs in executor thread)."""
+        ctx: Optional[DownloadItemContext] = getattr(self._thread_local, "context", None)
+        if ctx is None:
+            return
+
         if self._cancelled:
             raise RuntimeError("User cancelled")
         if self._skip_current:
@@ -272,55 +285,54 @@ class AsyncDownloadManager:
                     status_msg = "Paused"
                 self._emit_status(status_msg)
 
-                if total and pct >= self._last_logged_pct + 10:
-                    self._last_logged_pct = pct - (pct % 10)
+                if total and pct >= ctx.last_logged_pct + 10:
+                    ctx.last_logged_pct = pct - (pct % 10)
                     self._emit_log(f"Progress: {pct}% | {format_status(speed, eta)}")
 
                 filename = d.get("filename") or d.get("tmpfilename")
                 if filename:
-                    self._current_output_file = filename
+                    ctx.current_output_file = filename
                     try:
-                        self._artifact_candidates.add(filename)
-                        self._last_item_dir = os.path.dirname(filename) or self.options.directory
+                        ctx.artifact_candidates.add(filename)
+                        ctx.last_item_dir = os.path.dirname(filename) or self.options.directory
                         base = os.path.basename(filename)
-                        self._last_item_stem = os.path.splitext(base)[0]
+                        ctx.last_item_stem = os.path.splitext(base)[0]
                     except Exception:
                         pass
                 tmp = d.get("tmpfilename")
                 if tmp:
                     try:
-                        self._artifact_candidates.add(tmp)
-                        if not self._last_item_dir:
-                            self._last_item_dir = os.path.dirname(tmp) or self.options.directory
-                        if not self._last_item_stem:
+                        ctx.artifact_candidates.add(tmp)
+                        if not ctx.last_item_dir:
+                            ctx.last_item_dir = os.path.dirname(tmp) or self.options.directory
+                        if not ctx.last_item_stem:
                             base = os.path.basename(tmp)
-                            self._last_item_stem = os.path.splitext(base)[0]
+                            ctx.last_item_stem = os.path.splitext(base)[0]
                     except Exception:
                         pass
 
             elif status == "finished":
                 self._emit_status("Processing downloaded file...")
                 self._emit_log("Download finished. Running post-processing...")
-                filename = d.get("filename") or self._current_output_file
+                filename = d.get("filename") or ctx.current_output_file
                 if filename:
-                    self._current_output_file = filename
+                    ctx.current_output_file = filename
                     try:
-                        self._artifact_candidates.add(filename)
-                        self._last_item_dir = os.path.dirname(filename) or self.options.directory
+                        ctx.artifact_candidates.add(filename)
+                        ctx.last_item_dir = os.path.dirname(filename) or self.options.directory
                         base = os.path.basename(filename)
-                        self._last_item_stem = os.path.splitext(base)[0]
+                        ctx.last_item_stem = os.path.splitext(base)[0]
                     except Exception:
                         pass
                 self._emit_progress(100)
         except Exception as e:
             self._emit_log(f"Progress hook error: {e!r}")
 
-    async def _download_with_fallback(self, url: str) -> tuple[bool, str]:
+    async def _download_with_fallback(self, url: str, ctx: DownloadItemContext) -> tuple[bool, str]:
         """Download a single URL with format fallback."""
         max_attempts = 3 if not self.options.is_mp3 else 1
-        self._current_url = url
-        self._current_title = None
-        last_error = ""
+        ctx.current_title = None
+        ctx.last_error = ""
 
         for attempt in range(max_attempts):
             if self._cancelled:
@@ -340,14 +352,15 @@ class AsyncDownloadManager:
                     self._executor,
                     self._run_yt_dlp,
                     url,
-                    ydl_opts
+                    ydl_opts,
+                    ctx
                 )
-                return True, last_error
+                return True, ctx.last_error
 
             except Exception as e:
                 logger.warning(f"Attempt {attempt + 1} failed for {url}: {e}", exc_info=True)
                 error_str = str(e)
-                last_error = error_str
+                ctx.last_error = error_str
                 classified_error = classify_error(e)
 
                 if isinstance(classified_error, FormatNotAvailableError):
@@ -363,86 +376,69 @@ class AsyncDownloadManager:
                         continue
                 raise
 
-        return False, last_error
+        return False, ctx.last_error
 
-    def _run_yt_dlp(self, url: str, ydl_opts: Dict) -> None:
+    def _run_yt_dlp(self, url: str, ydl_opts: Dict, ctx: DownloadItemContext) -> None:
         """Run yt-dlp download (blocking, runs in executor)."""
-        # Extract info first
+        self._thread_local.context = ctx
         try:
+            # Extract info first
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    ctx.current_title = info.get("title") or "Unknown title"
+                    uploader = info.get("uploader") or info.get("channel") or "Unknown"
+                    dur = info.get("duration")
+                    dur_str = format_eta(dur) if dur else "?"
+                    self._emit_log(f"Info: {ctx.current_title} | Uploader: {uploader} | Duration: {dur_str}")
+            except Exception as ie:
+                self._emit_log(f"Info probe failed: {ie}")
+
+            # Perform download
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                self._current_title = info.get("title") or "Unknown title"
-                uploader = info.get("uploader") or info.get("channel") or "Unknown"
-                dur = info.get("duration")
-                dur_str = format_eta(dur) if dur else "?"
-                self._emit_log(f"Info: {self._current_title} | Uploader: {uploader} | Duration: {dur_str}")
-        except Exception as ie:
-            self._emit_log(f"Info probe failed: {ie}")
+                ydl.download([url])
+        finally:
+            self._thread_local.context = None
 
-        # Perform download
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+    def _is_temporary_artifact(self, path: str, final_output: Optional[str]) -> bool:
+        """Only remove known temporary files generated during this attempt."""
+        if not path:
+            return False
 
-    def _cleanup_artifacts_for_current_item(self) -> None:
+        path_norm = os.path.normcase(os.path.abspath(path))
+        if final_output and path_norm == os.path.normcase(os.path.abspath(final_output)):
+            return False
+
+        lower_name = os.path.basename(path_norm).lower()
+        temp_suffixes = (".part", ".ytdl", ".ytdl.part", ".tmp", ".temp", ".m4s", ".ts")
+        return (
+            lower_name.endswith(temp_suffixes)
+            or "-video" in lower_name
+            or "-audio" in lower_name
+        )
+
+    def _cleanup_artifacts_for_current_item(self, ctx: DownloadItemContext) -> None:
         """Clean up partial download artifacts."""
         try:
-            work_dir = self._last_item_dir or self.options.directory
-            stem = self._last_item_stem
-            candidates = set(self._artifact_candidates)
-            if self._current_output_file:
-                candidates.add(self._current_output_file)
-                try:
-                    tmp_dir = os.path.dirname(self._current_output_file)
-                    tmp_base = os.path.basename(self._current_output_file)
-                    stem = stem or os.path.splitext(tmp_base)[0]
-                    work_dir = tmp_dir or work_dir
-                except Exception:
-                    pass
-
-            if not work_dir:
-                return
-
-            patterns: List[str] = []
-            if stem:
-                patterns.extend([
-                    f"{stem}.part",
-                    f"{stem}.ytdl",
-                    f"{stem}.ytdl.part",
-                    f"{stem}.tmp",
-                    f"{stem}.temp",
-                    f"{stem}-video.*",
-                    f"{stem}-audio.*",
-                    f"{stem}*.m4s",
-                    f"{stem}*.ts",
-                    f"{stem}.webp",
-                    f"{stem}.jpg",
-                    f"{stem}.png",
-                    f"{stem}.mp4",
-                ])
-
-            import glob
-            for pat in patterns:
-                try:
-                    for p in glob.glob(os.path.join(work_dir, pat)):
-                        candidates.add(p)
-                except Exception:
-                    pass
-
             removed = 0
-            for path in list(candidates):
+            for path in list(ctx.artifact_candidates):
                 try:
                     if not path:
                         continue
-                    if not os.path.isabs(path):
-                        path = os.path.join(work_dir, path)
-                    if os.path.isfile(path):
-                        os.remove(path)
+                    abs_path = path
+                    if not os.path.isabs(abs_path):
+                        work_dir = ctx.last_item_dir or self.options.directory
+                        abs_path = os.path.join(work_dir, abs_path)
+                    if os.path.isfile(abs_path) and self._is_temporary_artifact(abs_path, ctx.current_output_file):
+                        os.remove(abs_path)
                         removed += 1
-                        self._emit_log(f"Cleanup: removed {path}")
+                        self._emit_log(f"Cleanup: removed {abs_path}")
+                    elif os.path.isfile(abs_path):
+                        self._emit_log(f"Cleanup: preserved final/non-temp file {abs_path}")
                 except Exception as e:
                     self._emit_log(f"Cleanup: failed to remove {path}: {e}")
             if removed == 0:
-                self._emit_log("Cleanup: no artifacts found to remove")
+                self._emit_log("Cleanup: no temporary artifacts found to remove")
         except Exception as e:
             self._emit_log(f"Cleanup error: {e}")
 
@@ -457,9 +453,8 @@ class AsyncDownloadManager:
                     break
                 continue
 
-            # Handle pause before starting download
-            while self._paused and not self._cancelled:
-                await asyncio.sleep(0.1)
+            # Properly await pause event for flow control
+            await self._pause_event.wait()
 
             if self._cancelled:
                 self._queue.task_done()
@@ -475,11 +470,7 @@ class AsyncDownloadManager:
 
     async def _process_single_download(self, url: str) -> None:
         """Process a single download URL."""
-        self._last_logged_pct = -10
-        self._current_output_file = None
-        self._artifact_candidates = set()
-        self._last_item_dir = None
-        self._last_item_stem = None
+        ctx = DownloadItemContext(url=url)
         self._skip_current = False
 
         if self.on_item_started:
@@ -491,15 +482,15 @@ class AsyncDownloadManager:
         try:
             os.makedirs(self.options.directory, exist_ok=True)
 
-            success, error_msg = await self._download_with_fallback(url)
+            success, error_msg = await self._download_with_fallback(url, ctx)
 
             if success:
                 self._success_count += 1
-                final_path = self._current_output_file or "Completed"
+                final_path = ctx.current_output_file or "Completed"
                 if self._history:
                     self._history.add_completed(
                         url=url,
-                        title=self._current_title or "Unknown",
+                        title=ctx.current_title or "Unknown",
                         format="mp3" if self.options.is_mp3 else "mp4",
                         quality=self.options.quality,
                         output_path=final_path
@@ -510,13 +501,13 @@ class AsyncDownloadManager:
             else:
                 self._fail_count += 1
                 try:
-                    self._cleanup_artifacts_for_current_item()
+                    self._cleanup_artifacts_for_current_item(ctx)
                 except Exception:
                     pass
                 if self._history:
                     self._history.add_failed(
                         url=url,
-                        title=self._current_title or "Unknown",
+                        title=ctx.current_title or "Unknown",
                         format="mp3" if self.options.is_mp3 else "mp4",
                         quality=self.options.quality,
                         error_message=error_msg or "Download failed"
@@ -529,13 +520,13 @@ class AsyncDownloadManager:
             error_str = str(e)
             if error_str == "User cancelled":
                 try:
-                    self._cleanup_artifacts_for_current_item()
+                    self._cleanup_artifacts_for_current_item(ctx)
                 except Exception:
                     pass
                 if self._history:
                     self._history.add_failed(
                         url=url,
-                        title=self._current_title or "Unknown",
+                        title=ctx.current_title or "Unknown",
                         format="mp3" if self.options.is_mp3 else "mp4",
                         quality=self.options.quality,
                         error_message="Cancelled by user"
@@ -547,13 +538,13 @@ class AsyncDownloadManager:
 
             if error_str == "Skip current":
                 try:
-                    self._cleanup_artifacts_for_current_item()
+                    self._cleanup_artifacts_for_current_item(ctx)
                 except Exception:
                     pass
                 if self._history:
                     self._history.add_failed(
                         url=url,
-                        title=self._current_title or "Unknown",
+                        title=ctx.current_title or "Unknown",
                         format="mp3" if self.options.is_mp3 else "mp4",
                         quality=self.options.quality,
                         error_message="Skipped by user"
@@ -565,13 +556,13 @@ class AsyncDownloadManager:
 
             self._fail_count += 1
             try:
-                self._cleanup_artifacts_for_current_item()
+                self._cleanup_artifacts_for_current_item(ctx)
             except Exception:
                 pass
             if self._history:
                 self._history.add_failed(
                     url=url,
-                    title=self._current_title or "Unknown",
+                    title=ctx.current_title or "Unknown",
                     format="mp3" if self.options.is_mp3 else "mp4",
                     quality=self.options.quality,
                     error_message=error_str

@@ -1,7 +1,5 @@
 from datetime import datetime
-from pathlib import Path
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -12,15 +10,10 @@ from PySide6.QtWidgets import (
     QPushButton,
     QLabel,
     QLineEdit,
-    QDateEdit,
-    QCheckBox,
     QHeaderView,
     QFileDialog,
     QMessageBox,
-    QSplitter,
-    QWidget,
     QComboBox,
-    QDialogButtonBox,
 )
 
 from core.history import DownloadHistory

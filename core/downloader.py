@@ -311,65 +311,48 @@ class DownloadManager:
                 
         return False, last_error
 
+    def _is_temporary_artifact(self, path: str, final_output: Optional[str]) -> bool:
+        """Only remove known temporary files created during the current attempt."""
+        if not path:
+            return False
+
+        path_norm = os.path.normcase(os.path.abspath(path))
+        if final_output and path_norm == os.path.normcase(os.path.abspath(final_output)):
+            return False
+
+        lower_name = os.path.basename(path_norm).lower()
+        temp_suffixes = (".part", ".ytdl", ".ytdl.part", ".tmp", ".temp", ".m4s", ".ts")
+        return (
+            lower_name.endswith(temp_suffixes)
+            or "-video" in lower_name
+            or "-audio" in lower_name
+        )
+
     def _cleanup_artifacts_for_current_item(self) -> None:
         try:
-            work_dir = self._last_item_dir or self.options.directory
-            stem = self._last_item_stem
             candidates = set(self._artifact_candidates)
             if self._current_output_file:
                 candidates.add(self._current_output_file)
-                try:
-                    tmp_dir = os.path.dirname(self._current_output_file)
-                    tmp_base = os.path.basename(self._current_output_file)
-                    stem = stem or os.path.splitext(tmp_base)[0]
-                    work_dir = tmp_dir or work_dir
-                except Exception:
-                    pass
-
-            if not work_dir:
-                return
-
-            patterns: List[str] = []
-            if stem:
-                patterns.extend([
-                    f"{stem}.part",
-                    f"{stem}.ytdl",
-                    f"{stem}.ytdl.part",
-                    f"{stem}.tmp",
-                    f"{stem}.temp",
-                    f"{stem}-video.*",
-                    f"{stem}-audio.*",
-                    f"{stem}*.m4s",
-                    f"{stem}*.ts",
-                    f"{stem}.webp",
-                    f"{stem}.jpg",
-                    f"{stem}.png",
-                    f"{stem}.mp4",
-                ])
-
-            import glob
-            for pat in patterns:
-                try:
-                    for p in glob.glob(os.path.join(work_dir, pat)):
-                        candidates.add(p)
-                except Exception:
-                    pass
 
             removed = 0
             for path in list(candidates):
                 try:
                     if not path:
                         continue
-                    if not os.path.isabs(path):
-                        path = os.path.join(work_dir, path)
-                    if os.path.isfile(path):
-                        os.remove(path)
+                    abs_path = path
+                    if not os.path.isabs(abs_path):
+                        work_dir = self._last_item_dir or self.options.directory
+                        abs_path = os.path.join(work_dir, abs_path)
+                    if os.path.isfile(abs_path) and self._is_temporary_artifact(abs_path, self._current_output_file):
+                        os.remove(abs_path)
                         removed += 1
-                        self._emit_log(f"Cleanup: removed {path}")
+                        self._emit_log(f"Cleanup: removed {abs_path}")
+                    elif os.path.isfile(abs_path):
+                        self._emit_log(f"Cleanup: preserved final/non-temp file {abs_path}")
                 except Exception as e:
                     self._emit_log(f"Cleanup: failed to remove {path}: {e}")
             if removed == 0:
-                self._emit_log("Cleanup: no artifacts found to remove")
+                self._emit_log("Cleanup: no temporary artifacts found to remove")
         except Exception as e:
             self._emit_log(f"Cleanup error: {e}")
 

@@ -323,12 +323,12 @@ class DatabaseManager:
             cursor = conn.execute(query, params)
             return [HistoryRecord.from_row(row) for row in cursor.fetchall()]
 
-    def update_record(self, url: str, **kwargs) -> bool:
+    def update_record(self, record_id: int, **kwargs) -> bool:
         """
-        Update an existing record by URL.
+        Update an existing record by primary key ID.
 
         Args:
-            url: URL to match
+            record_id: Record ID to match
             **kwargs: Fields to update
 
         Returns:
@@ -350,10 +350,19 @@ class DatabaseManager:
 
         with self.get_connection() as conn:
             cursor = conn.execute(
-                f"UPDATE history SET {set_clause} WHERE url = ?",
-                (*updates.values(), url)
+                f"UPDATE history SET {set_clause} WHERE id = ?",
+                (*updates.values(), record_id)
             )
             return cursor.rowcount > 0
+
+    def get_latest_by_url(self, url: str) -> Optional[HistoryRecord]:
+        """Return the latest history record for an exact URL match."""
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM history WHERE url = ? ORDER BY id DESC LIMIT 1",
+                (url,)
+            ).fetchone()
+            return HistoryRecord.from_row(row) if row else None
 
     def delete_record(self, record_id: int) -> bool:
         """Delete a record by ID."""
@@ -476,8 +485,11 @@ class DownloadHistory:
         return [self._record_to_dict(r) for r in records]
 
     def update_record(self, url: str, **kwargs) -> bool:
-        """Update a record by URL."""
-        return self._db.update_record(url, **kwargs)
+        """Update the latest matching URL record (backward-compatible behavior)."""
+        record = self._db.get_latest_by_url(url)
+        if not record:
+            return False
+        return self._db.update_record(record.id, **kwargs)
 
     def clear_history(self) -> None:
         """Clear all history."""

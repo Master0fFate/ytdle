@@ -21,9 +21,9 @@ def build_exe():
             import shutil
             shutil.rmtree(folder)
 
-    for f in os.listdir("."):
-        if f.endswith(".spec"):
-            os.remove(f)
+    generated_spec = "YTDLE.spec"
+    if os.path.exists(generated_spec):
+        os.remove(generated_spec)
 
     cmd = [
         "pyinstaller",
@@ -32,9 +32,6 @@ def build_exe():
         "--name", "YTDLE",
         "--clean",
         "--collect-all", "yt_dlp",
-        "--icon", "icon.ico",
-        "--add-binary", "ffmpeg.exe;.",
-        "--add-binary", "aria2c.exe;.",
         # Version info
         "--version-file", "version_info.txt",
         # Hidden imports for new modules
@@ -55,6 +52,21 @@ def build_exe():
         "--log-level", "WARN",
         "main.py"
     ]
+
+    if os.path.exists("icon.ico"):
+        cmd.extend(["--icon", "icon.ico"])
+    else:
+        print("Warning: icon.ico not found, building without icon")
+
+    if os.path.exists("ffmpeg.exe"):
+        cmd.extend(["--add-binary", "ffmpeg.exe;."])
+    else:
+        print("Warning: ffmpeg.exe not found, building without bundled ffmpeg")
+
+    if os.path.exists("aria2c.exe"):
+        cmd.extend(["--add-binary", "aria2c.exe;."])
+    else:
+        print("Warning: aria2c.exe not found, building without bundled aria2c")
 
     print("Building YTDLE executable...")
     print(f"Version: {VERSION}")

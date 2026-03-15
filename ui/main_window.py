@@ -53,7 +53,9 @@ class MainWindow(QMainWindow):
         self._ffmpeg_available: bool = self._ffmpeg_path != "Not found"
         
         self._downloading_total: int = 0
-        self._downloading_index: int = 0
+        self._downloading_started: int = 0
+        self._downloading_completed: int = 0
+        self._downloading_active: int = 0
 
         self.settings = QSettings("Merlin", "YTDLE_v2")
 
@@ -624,9 +626,6 @@ class MainWindow(QMainWindow):
         <h3>Supported Browsers</h3>
         <p>Select your browser from the dropdown:</p>
         <ul>
-        <h3>Supported Browsers</h3>
-        <p>Select your browser from the dropdown:</p>
-        <ul>
             <li><span class="browser">Chrome</span> - Google Chrome</li>
             <li><span class="browser">Firefox</span> - Mozilla Firefox</li>
             <li><span class="browser">Edge</span> - Microsoft Edge</li>
@@ -732,15 +731,16 @@ class MainWindow(QMainWindow):
 
         from core.network import check_internet_connection
         is_online = check_internet_connection()
+        ytdlp_ver = self._yt_dlp_version or "unknown"
 
         if is_online:
-            self.network_label.setText("Network: Online")
+            self.network_label.setText(f"Network: Online | yt-dlp: {ytdlp_ver}")
             self.network_label.setStyleSheet("color: #4caf50;")
-            self.append_log("Network status: Online")
+            self.append_log(f"Network status: Online | yt-dlp: {ytdlp_ver}")
         else:
-            self.network_label.setText("Network: Offline")
+            self.network_label.setText(f"Network: Offline | yt-dlp: {ytdlp_ver}")
             self.network_label.setStyleSheet("color: #f44336;")
-            self.append_log("Network status: Offline - downloads may fail")
+            self.append_log(f"Network status: Offline | yt-dlp: {ytdlp_ver} - downloads may fail")
 
     def _toggle_pause(self) -> None:
         worker = self._worker or self._async_worker
@@ -788,7 +788,9 @@ class MainWindow(QMainWindow):
 
         urls = self._collect_urls()
         self._downloading_total = len(urls)
-        self._downloading_index = 0
+        self._downloading_started = 0
+        self._downloading_completed = 0
+        self._downloading_active = 0
 
         # Determine ffmpeg args based on mode
         f_args = self.ffmpeg_input.text().strip()
@@ -885,14 +887,22 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(max(0, min(100, value)))
 
     def _on_status(self, text: str) -> None:
-        prefix = f"Item {self._downloading_index}/{self._downloading_total}: " if self._downloading_total else ""
+        prefix = ""
+        if self._downloading_total:
+            prefix = (
+                f"Completed {self._downloading_completed}/{self._downloading_total}"
+                f" | Active {self._downloading_active}: "
+            )
         self.status_label.setText(prefix + text)
 
     def _on_item_started(self, url: str) -> None:
-        self._downloading_index += 1
-        self.append_log(f"Starting {self._downloading_index}/{self._downloading_total}: {url}")
+        self._downloading_started += 1
+        self._downloading_active += 1
+        self.append_log(f"Starting {self._downloading_started}/{self._downloading_total}: {url}")
 
     def _on_item_finished(self, url: str, success: bool, info: str) -> None:
+        self._downloading_active = max(0, self._downloading_active - 1)
+        self._downloading_completed += 1
         if success:
             self.append_log(f"SUCCESS: {url}\\nSaved to: {info}")
         else:

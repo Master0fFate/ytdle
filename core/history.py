@@ -47,13 +47,15 @@ class DownloadHistory:
 
     def __init__(self, history_file: Optional[str] = None):
         self._history_file = history_file or self._get_default_history_path()
+        self._db_path = self._resolve_db_path(self._history_file)
         self._records: List[HistoryRecord] = []
 
         # Use SQLite if available
         if _HAS_SQLITE:
-            self._db = DatabaseManager()
-            # Migrate from JSON on first run
-            self._db.migrate_from_json(self._history_file)
+            self._db = DatabaseManager(self._db_path)
+            # Migrate from JSON only when an existing JSON path is provided.
+            if self._history_file.lower().endswith(".json"):
+                self._db.migrate_from_json(self._history_file)
             self._use_sqlite = True
         else:
             self._db = None
@@ -65,6 +67,13 @@ class DownloadHistory:
         app_dir = Path.home() / ".ytdle"
         app_dir.mkdir(exist_ok=True)
         return str(app_dir / "history.json")
+
+    def _resolve_db_path(self, history_file: str) -> str:
+        """Resolve a sqlite path from history_file while preserving custom locations."""
+        path = Path(history_file)
+        if path.suffix.lower() == ".db":
+            return str(path)
+        return str(path.with_suffix(".db"))
 
     def _load(self) -> None:
         """Load from JSON (fallback mode)."""
@@ -259,13 +268,13 @@ class DownloadHistory:
     def update_record(self, url: str, success: bool, output_path: str = "", error_message: str = "") -> bool:
         """Update an existing record."""
         if self._use_sqlite:
-            record = self.get_record_by_url(url)
+            record = self._db.get_latest_by_url(url)
             if record:
                 retry_count = record.retry_count
                 if not success:
                     retry_count += 1
                 return self._db.update_record(
-                    url=url,
+                    record_id=record.id,
                     success=success,
                     output_path=output_path or record.output_path,
                     error_message=error_message or record.error_message,

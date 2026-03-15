@@ -14,8 +14,8 @@ class NetworkStatus:
 
 def check_internet_connection(timeout: float = 5.0, test_host: str = "8.8.8.8", test_port: int = 53) -> bool:
     try:
-        socket.setdefaulttimeout(timeout)
-        socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((test_host, test_port))
+        with socket.create_connection((test_host, test_port), timeout=timeout):
+            pass
         return True
     except socket.error:
         return False
