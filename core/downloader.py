@@ -1,17 +1,16 @@
 import logging
 import os
 import threading
-import traceback
 from typing import Callable, Dict, List, Optional, Set
 
 import yt_dlp
 from PySide6.QtCore import QObject, Signal
 
 from core.config import DownloadOptions
-from core.utils import sanitize_template, format_status, format_eta, get_ffmpeg_path
+from core.utils import sanitize_template, format_status, format_eta, get_aria2c_path, get_ffmpeg_path
 from core.history import DownloadHistory
 from core.errors import classify_error, FormatNotAvailableError, DownloadError
-from core.network import NetworkMonitor, NetworkStatus
+from core.network import NetworkMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +38,21 @@ def build_yt_dlp_options(opts: DownloadOptions, progress_hook: Callable, attempt
     
     if ffmpeg_loc:
         base["ffmpeg_location"] = ffmpeg_loc
+
+    if getattr(opts, "use_aria2c", False):
+        aria2c_loc = get_aria2c_path()
+        base.update({
+            "external_downloader": aria2c_loc or "aria2c",
+            "external_downloader_args": {
+                "aria2c": [
+                    "-x", str(getattr(opts, "max_connections", 16)),
+                    "-s", str(getattr(opts, "max_connections", 16)),
+                    "-k", "1M",
+                    "--file-allocation=none",
+                    "--optimize-concurrent-downloads=true",
+                ]
+            },
+        })
     
     # Browser cookies take priority over cookie file
     if opts.cookies_from_browser:
@@ -298,7 +312,7 @@ class DownloadManager:
                 
                 if isinstance(classified_error, FormatNotAvailableError):
                     if attempt < max_attempts - 1:
-                        self._emit_log(f"Format not available, trying fallback...")
+                        self._emit_log("Format not available, trying fallback...")
                         continue
                     else:
                         self._emit_log(f"All format attempts failed for {url}")

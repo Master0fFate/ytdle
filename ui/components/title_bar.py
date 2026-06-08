@@ -1,5 +1,5 @@
-from PySide6.QtCore import Qt, QPoint
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QToolButton, QStyle
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QToolButton
 
 class CustomTitleBar(QWidget):
     def __init__(self, parent):

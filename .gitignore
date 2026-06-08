@@ -4,6 +4,12 @@ __pycache__/
 *$py.class
 *.so
 .Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 build/
 develop-eggs/
 dist/
@@ -25,9 +31,12 @@ wheels/
 *.spec
 
 # Virtual environments
+.venv/
 venv/
 env/
 ENV/
+.env
+.env.*
 
 # IDE
 .vscode/
@@ -38,6 +47,7 @@ ENV/
 
 # Logs
 *.log
+ytdle.log.*
 
 # Database files (user data, not source)
 *.db
@@ -49,11 +59,27 @@ ENV/
 ffmpeg.exe
 aria2c.exe
 *.dll
+*.pyd
 
 # User data
 .ytdle/
 history.json
 history.json.backup
+failed_urls.txt
+
+# Generated release metadata and local installers
+version_info.txt
+*.msi
+*.zip
+*.7z
+
+# Downloaded media accidentally created in the repo root
+*.mp3
+*.mp4
+*.m4a
+*.webm
+*.mkv
+*.part
 
 # OS
 .DS_Store

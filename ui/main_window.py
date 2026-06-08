@@ -2,6 +2,7 @@ import os
 from typing import List, Optional
 
 from PySide6.QtCore import Qt, QThread, QSettings
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -49,8 +50,12 @@ class MainWindow(QMainWindow):
         
         deps = check_dependencies()
         self._ffmpeg_path = deps["ffmpeg"]
+        self._aria2c_path = deps["aria2c"]
         self._yt_dlp_version = deps["yt_dlp"]
         self._ffmpeg_available: bool = self._ffmpeg_path != "Not found"
+        self._aria2c_available: bool = self._aria2c_path != "Not found"
+        self._ffmpeg_version = deps.get("ffmpeg_version", "unknown")
+        self._aria2c_version = deps.get("aria2c_version", "unknown")
         
         self._downloading_total: int = 0
         self._downloading_started: int = 0
@@ -111,9 +116,30 @@ class MainWindow(QMainWindow):
 
         download_layout.addLayout(dir_row)
 
+        dependency_row = QHBoxLayout()
+        self.dependency_label = QLabel("Checking tools...", self)
+        self.dependency_label.setObjectName("DependencyStatus")
+        self.dependency_label.setWordWrap(True)
+        self.dependency_label.setToolTip("Detected downloader toolchain and local paths")
+        dependency_row.addWidget(self.dependency_label, 1)
+        download_layout.addLayout(dependency_row)
+
+        url_header = QHBoxLayout()
         url_label = QLabel("URLs:", self)
         url_label.setToolTip("Paste one URL per line. You can also drag & drop links here.")
-        download_layout.addWidget(url_label, 0)
+        url_header.addWidget(url_label, 0)
+        self.queue_label = QLabel("Queue: 0 links", self)
+        self.queue_label.setObjectName("QueueSummary")
+        self.queue_label.setToolTip("How many non-empty lines are queued")
+        url_header.addWidget(self.queue_label, 0)
+        url_header.addStretch(1)
+        self.clear_urls_button = QPushButton("Clear URLs", self)
+        self.clear_urls_button.setObjectName("ClearUrlsButton")
+        self.clear_urls_button.setToolTip("Clear the current URL queue")
+        self.clear_urls_button.clicked.connect(self._clear_urls)
+        url_header.addWidget(self.clear_urls_button, 0)
+        download_layout.addLayout(url_header)
+
         self.url_input = QPlainTextEdit(self)
         self.url_input.setPlaceholderText("Enter one URL per line (YouTube, Twitter, TikTok, etc.)")
         self.url_input.setTabChangesFocus(True)
@@ -401,6 +427,7 @@ class MainWindow(QMainWindow):
         self.mp4_btn.clicked.connect(self._update_quality_options)
         self.template_presets.currentIndexChanged.connect(self._apply_template_preset)
         self.template_line.textChanged.connect(self._save_settings)
+        self.url_input.textChanged.connect(self._update_queue_summary)
         self.ffmpeg_input.textChanged.connect(self._save_settings)
         self.ffmpeg_mode.currentIndexChanged.connect(self._save_settings)
         self.playlist_checkbox.stateChanged.connect(self._save_settings)
@@ -412,8 +439,14 @@ class MainWindow(QMainWindow):
         self.mp3_btn.toggled.connect(self._save_settings)
         self.mp4_btn.toggled.connect(self._save_settings)
 
+        QShortcut(QKeySequence("Ctrl+Return"), self, activated=self._start_downloads)
+        QShortcut(QKeySequence("Ctrl+L"), self, activated=self.url_input.setFocus)
+        QShortcut(QKeySequence("Esc"), self, activated=self._cancel_downloads)
+
         self.mp3_btn.setChecked(True)
         self._update_quality_options()
+        self._refresh_dependency_status()
+        self._update_queue_summary()
 
         self.setMinimumSize(700, 560)
 
@@ -442,6 +475,7 @@ class MainWindow(QMainWindow):
             joined = "\\n".join(urls)
             self.url_input.setPlainText((current + "\\n" + joined).strip() if current else joined)
             self.append_log(f"Added {len(urls)} URL(s) via drag & drop.")
+            self._update_queue_summary()
         event.acceptProposedAction()
 
     # --------------- Settings ---------------
@@ -549,6 +583,55 @@ class MainWindow(QMainWindow):
 
     def _open_folder(self) -> None:
         open_in_file_manager(self.dir_input.text().strip())
+
+    def _clear_urls(self) -> None:
+        self.url_input.clear()
+        self.status_label.setText("Queue cleared. Paste one or more links to begin.")
+        self.append_log("URL queue cleared")
+
+    def _update_queue_summary(self) -> None:
+        count = len(self._collect_urls())
+        noun = "link" if count == 1 else "links"
+        self.queue_label.setText(f"Queue: {count} {noun}")
+
+    def _tool_origin(self, path: str) -> str:
+        if not path or path == "Not found":
+            return "missing"
+        try:
+            root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+            normalized = os.path.abspath(path)
+            if os.path.commonpath([root, normalized]) == root:
+                return "bundled"
+        except Exception:
+            pass
+        return "system"
+
+    def _refresh_dependency_status(self) -> None:
+        ffmpeg_state = "ready" if self._ffmpeg_available else "missing"
+        aria_state = "ready" if self._aria2c_available else "missing"
+        ffmpeg_origin = self._tool_origin(self._ffmpeg_path)
+        aria_origin = self._tool_origin(self._aria2c_path)
+        self.dependency_label.setText(
+            f"Toolchain: FFmpeg {ffmpeg_state} ({ffmpeg_origin}) | "
+            f"aria2c {aria_state} ({aria_origin}) | yt-dlp {self._yt_dlp_version}"
+        )
+        details = [
+            f"FFmpeg: {self._ffmpeg_path}",
+            f"FFmpeg version: {self._ffmpeg_version}",
+            f"aria2c: {self._aria2c_path}",
+            f"aria2c version: {self._aria2c_version}",
+            f"yt-dlp: {self._yt_dlp_version}",
+        ]
+        self.dependency_label.setToolTip("\n".join(details))
+        if self._ffmpeg_available and self._aria2c_available:
+            state = "ready"
+        elif self._ffmpeg_available:
+            state = "partial"
+        else:
+            state = "warning"
+        self.dependency_label.setProperty("state", state)
+        self.dependency_label.style().unpolish(self.dependency_label)
+        self.dependency_label.style().polish(self.dependency_label)
 
     def _on_browser_changed(self, browser: str) -> None:
         """Save settings when browser changes."""
@@ -698,6 +781,7 @@ class MainWindow(QMainWindow):
                 joined = "\\n".join(retry_urls)
                 self.url_input.setPlainText((current + "\\n" + joined).strip() if current else joined)
                 self.append_log(f"Added {len(retry_urls)} URL(s) from history to download queue.")
+                self._update_queue_summary()
 
     def append_log(self, message: str) -> None:
         self.log_output.appendPlainText(message)
@@ -718,6 +802,7 @@ class MainWindow(QMainWindow):
         self.restrict_checkbox.setEnabled(enabled)
         self.async_checkbox.setEnabled(enabled)
         self.aria2c_checkbox.setEnabled(enabled)
+        self.clear_urls_button.setEnabled(enabled)
         self.history_button.setEnabled(True)
         self.check_network_button.setEnabled(enabled)
         self.start_button.setEnabled(enabled)
@@ -772,6 +857,12 @@ class MainWindow(QMainWindow):
         directory = self.dir_input.text().strip()
         if not directory:
             return "Please choose a download directory."
+        if self.aria2c_checkbox.isChecked() and not self._aria2c_available:
+            return (
+                "aria2c is enabled but aria2c.exe was not found.\n"
+                "Place aria2c.exe beside YTDLE.exe, keep it in the project folder when running from source, "
+                "or disable Use aria2c."
+            )
         try:
             os.makedirs(directory, exist_ok=True)
         except Exception as e:
@@ -823,6 +914,7 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(0)
         self.status_label.setText("Starting download...")
         self.append_log(f"System: yt-dlp {self._yt_dlp_version}, ffmpeg: {self._ffmpeg_path}")
+        self.append_log(f"aria2c: {self._aria2c_path}")
         self.append_log(f"Queue size: {len(urls)}")
         self.append_log(f"Format: {'MP3' if opts.is_mp3 else 'MP4'} | Quality: {opts.quality}")
         self.append_log(f"Output dir: {opts.directory}")

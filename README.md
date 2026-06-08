@@ -10,6 +10,7 @@ YTDLE is a modern, cross-platform media downloader built with Python and PySide6
 - **Format Selection**: Easily switch between MP3 (Audio) and MP4 (Video) formats.
 - **Quality Control**: Select specific bitrates for audio or resolution caps for video (up to 4K/8K).
 - **Aria2c Integration**: Optional multi-connection downloading for 3-5x faster speeds.
+- **Toolchain Readiness**: GUI surfaces detected FFmpeg, aria2c, and yt-dlp status before a download starts.
 - **Custom FFmpeg Args**: Pass custom flags directly to FFmpeg (via GUI or CLI).
 - **Batch Processing**: Download multiple URLs concurrently with a queue system.
 - **Playlist Support**: Option to download entire playlists or channels.
@@ -19,6 +20,7 @@ YTDLE is a modern, cross-platform media downloader built with Python and PySide6
 - **Download History**: Persistent SQLite-based history tracking with export and retry failed downloads.
 - **Network Detection**: Real-time network connectivity monitoring with manual check capability.
 - **Download Controls**: Pause, resume, skip, and cancel downloads with thread-safe controls.
+- **Release Hygiene**: Bundled binaries stay local, with tracked provenance and checksum guidance.
 
 ## Requirements
 
@@ -44,6 +46,12 @@ YTDLE is a modern, cross-platform media downloader built with Python and PySide6
     python main.py
     ```
 
+4.  **Run tests**:
+    ```bash
+    pip install -r requirements-dev.txt
+    python -m pytest
+    ```
+
 ## Usage
 
 ### Graphical Interface (GUI)
@@ -52,6 +60,7 @@ Run `YTDLE.exe` or `python main.py` to launch the modern dark-themed GUI.
 **New Options:**
 - **Async Mode**: Enable high-performance asyncio download engine (default: enabled)
 - **Use Aria2c**: Enable multi-connection downloads for faster speeds (requires aria2c binary)
+- **Keyboard Shortcuts**: `Ctrl+Enter` starts downloads, `Ctrl+L` focuses the URL queue, and `Esc` requests cancellation.
 
 ### Command Line Interface (CLI)
 You can use the **same** executable for CLI operations.
@@ -76,6 +85,8 @@ YTDLE.exe -i "https://youtube.com/watch?v=..."
 | `--cookies` | Path to cookies file (anti-bot) | `--cookies cookies.txt` |
 | `--ffmpeg-add-args` | Append FFmpeg arguments | `--ffmpeg-add-args "-vcodec libx264"` |
 | `--ffmpeg-override-args` | Override FFmpeg arguments | `--ffmpeg-override-args "-vn"` |
+| `--aria2c` | Use aria2c as yt-dlp's external downloader | `--aria2c` |
+| `--connections` | aria2c connection count, clamped to 1-32 | `--connections 16` |
 | `-v`, `--verbose` | Enable verbose logging | `-v` |
 
 **Examples:**
@@ -125,6 +136,7 @@ pyinstaller --console --onefile --name "YTDLE" --clean --collect-all yt_dlp --ad
 - **Standard Build**: The executable is smaller but requires `ffmpeg.exe` to be in the same folder or in your System PATH.
 - **Standalone Build**: The executable is larger but works out-of-the-box on any machine without extra setup.
 - **Aria2c**: Optional binary for multi-connection downloads. Place `aria2c.exe` alongside the executable or in PATH.
+- **Source Control**: `ffmpeg.exe` and `aria2c.exe` are intentionally ignored by Git. See `BINARY_PROVENANCE.md` for trusted sources, expected versions, and checksum guidance.
 
 ## Project Structure
 
@@ -140,8 +152,11 @@ pyinstaller --console --onefile --name "YTDLE" --clean --collect-all yt_dlp --ad
   - `components/`: Reusable UI components (History dialog, Title bar, etc.).
 - `main.py`: Application entry point (handles both GUI and CLI).
 - `build.bat`: Windows build script with multiple build options.
+- `build_release.py`: Python release builder that includes local FFmpeg/aria2c when present.
 - `requirements.txt`: Production dependencies.
 - `requirements-dev.txt`: Development dependencies (testing, linting).
+- `BINARY_PROVENANCE.md`: Trusted binary source and verification notes.
+- `PRODUCT.md`: Product/design context for future UI work.
 
 ## Architecture
 

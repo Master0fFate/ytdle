@@ -1,0 +1,5 @@
+# Development dependencies for tests and release verification
+pytest>=9.0.0
+pytest-qt>=4.5.0
+ruff>=0.15.0
+PyInstaller>=6.19.0

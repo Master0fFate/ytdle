@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Import database components
 try:
-    from core.database import DatabaseManager, HistoryRecord as DBHistoryRecord
+    from core.database import DatabaseManager
     _HAS_SQLITE = True
 except ImportError:
     _HAS_SQLITE = False

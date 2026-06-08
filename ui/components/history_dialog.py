@@ -47,7 +47,6 @@ class HistoryDialog(QDialog):
         self.filter_input.setPlaceholderText("Search by title, URL, or quality...")
         self.filter_input.textChanged.connect(self._on_filter_changed)
 
-        status_filter_layout = QHBoxLayout()
         status_label = QLabel("Status:", self)
         self.status_combo = QComboBox(self)
         self.status_combo.addItems(["All", "Completed", "Failed"])

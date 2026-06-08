@@ -2,11 +2,11 @@ import argparse
 import ctypes
 import sys
 import os
-from typing import List
 
 from core.logger import setup_logging
 from core.config import DownloadOptions
 from core.downloader import DownloadManager
+from core.utils import get_aria2c_path
 
 
 class NullWriter:
@@ -56,6 +56,10 @@ def run_cli(args) -> None:
     if not quality:
         quality = "192k" if is_mp3 else "Best"
 
+    if args.aria2c and not get_aria2c_path():
+        print("Error: --aria2c was enabled, but aria2c was not found beside the app or on PATH.")
+        sys.exit(1)
+
     opts = DownloadOptions(
         is_mp3=is_mp3,
         quality=quality,
@@ -66,13 +70,16 @@ def run_cli(args) -> None:
         nocheckcertificate=args.no_check_certificate,
         cookies=args.cookies,
         ffmpeg_add_args=args.ffmpeg_add_args,
-        ffmpeg_override_args=args.ffmpeg_override_args
+        ffmpeg_override_args=args.ffmpeg_override_args,
+        use_aria2c=args.aria2c,
+        max_connections=max(1, min(args.connections, 32)),
     )
 
     print(f"URLs: {len(urls)}")
     print(f"Directory: {directory}")
     print(f"Format: {args.format.upper()} ({quality})")
     print(f"Playlist: {args.playlist}")
+    print(f"Aria2c: {args.aria2c} | Connections: {opts.max_connections}")
     print("-" * 30)
 
     def on_progress(pct: int):
@@ -84,7 +91,7 @@ def run_cli(args) -> None:
         try:
             sys.stdout.write(msg)
             sys.stdout.flush()
-        except:
+        except Exception:
             pass
 
     def on_status(msg: str):
@@ -92,7 +99,7 @@ def run_cli(args) -> None:
              try:
                 sys.stdout.write(f" | {msg}")
                 sys.stdout.flush()
-             except:
+             except Exception:
                 pass
         else:
              print(f"\nStatus: {msg}")
@@ -149,6 +156,8 @@ def main() -> None:
     parser.add_argument("--cookies", help="Path to cookies file (for authentication/anti-bot)")
     parser.add_argument("--ffmpeg-add-args", help="Append extra args for ffmpeg (e.g. '-vcodec libx264')")
     parser.add_argument("--ffmpeg-override-args", help="Override args for ffmpeg (may replace default post-processor configs)")
+    parser.add_argument("--aria2c", action="store_true", help="Use aria2c as yt-dlp's external downloader")
+    parser.add_argument("--connections", type=int, default=16, help="aria2c connection count, clamped to 1-32 (default: 16)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
 
     # If len(sys.argv) == 1, run GUI.

@@ -8,7 +8,6 @@ instead of O(n) read/write for large history files.
 import sqlite3
 import json
 import logging
-import os
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime

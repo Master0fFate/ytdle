@@ -10,7 +10,6 @@ import asyncio
 import logging
 import os
 import threading
-import traceback
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Set
@@ -19,10 +18,10 @@ import yt_dlp
 from PySide6.QtCore import QObject, Signal, QThread
 
 from core.config import DownloadOptions
-from core.utils import sanitize_template, format_status, format_eta, get_ffmpeg_path
+from core.utils import sanitize_template, format_status, format_eta, get_aria2c_path, get_ffmpeg_path
 from core.history import DownloadHistory
 from core.errors import classify_error, FormatNotAvailableError, DownloadError
-from core.network import NetworkMonitor, NetworkStatus
+from core.network import NetworkMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -78,15 +77,18 @@ def build_yt_dlp_options_async(
     # Aria2c integration for high-performance downloads
     if getattr(opts, 'use_aria2c', False):
         max_connections = getattr(opts, 'max_connections', 16)
+        aria2c_loc = get_aria2c_path()
         base.update({
-            "external_downloader": "aria2c",
-            "external_downloader_args": [
-                "-x", str(max_connections),
-                "-s", str(max_connections),
-                "-k", "1M",
-                "--file-allocation=none",
-                "--optimize-concurrent-downloads=true",
-            ]
+            "external_downloader": aria2c_loc or "aria2c",
+            "external_downloader_args": {
+                "aria2c": [
+                    "-x", str(max_connections),
+                    "-s", str(max_connections),
+                    "-k", "1M",
+                    "--file-allocation=none",
+                    "--optimize-concurrent-downloads=true",
+                ]
+            }
         })
 
     custom_ffmpeg_args = []
@@ -365,7 +367,7 @@ class AsyncDownloadManager:
 
                 if isinstance(classified_error, FormatNotAvailableError):
                     if attempt < max_attempts - 1:
-                        self._emit_log(f"Format not available, trying fallback...")
+                        self._emit_log("Format not available, trying fallback...")
                         continue
                     else:
                         self._emit_log(f"All format attempts failed for {url}")
@@ -577,8 +579,6 @@ class AsyncDownloadManager:
 
     async def run_async(self) -> tuple[int, int]:
         """Run downloads asynchronously."""
-        n = len(self.urls)
-
         ydl_ver = "unknown"
         try:
             from yt_dlp.version import __version__ as yv

@@ -10,6 +10,12 @@ QMainWindow#MainWindow {
 
 /* Labels */
 QLabel { color: #ffffff; }
+QToolTip {
+    background-color: #202020;
+    color: #ffffff;
+    border: 1px solid #3a3a3a;
+    padding: 6px;
+}
 
 /* Custom Title Bar */
 #TitleBar {
@@ -47,7 +53,10 @@ QPlainTextEdit {
     padding: 6px 8px;
     color: #ffffff;
 }
-QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus { border: 1px solid #0a84ff; }
+QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus {
+    border: 1px solid #45a3ff;
+    background-color: #20242a;
+}
 
 /* ComboBox - tighter drop-down */
 QComboBox { padding-right: 24px; }
@@ -84,6 +93,11 @@ QPushButton {
 }
 QPushButton:hover { background-color: #2a2a2a; }
 QPushButton:pressed { background-color: #343434; }
+QPushButton:disabled {
+    color: #777777;
+    background-color: #181818;
+    border: 1px solid #252525;
+}
 
 /* Format toggles (MP3/MP4) */
 QPushButton[formatToggle="true"] { background-color: #1f1f1f; border: 1px solid #2a2a2a; }
@@ -100,6 +114,11 @@ QPushButton#DownloadButton {
     padding: 8px 12px;
 }
 QPushButton#DownloadButton:hover { background-color: #1677ff; }
+QPushButton#DownloadButton:disabled {
+    background-color: #15304a;
+    border: 1px solid #20394f;
+    color: #9ebbd8;
+}
 QPushButton#CancelButton {
     background-color: #3a3a3a;
     border: 1px solid #2a2a2a;
@@ -166,6 +185,49 @@ QLabel#NetworkLabel {
     border: 1px solid #2a2a2a;
     border-radius: 4px;
     min-height: 22px;
+}
+
+/* Toolchain and queue telemetry */
+QLabel#DependencyStatus {
+    color: #d7e8ff;
+    padding: 8px 10px;
+    background-color: #17202b;
+    border: 1px solid #25415f;
+    border-radius: 6px;
+    min-height: 24px;
+}
+QLabel#DependencyStatus[state="ready"] {
+    color: #d8f6e1;
+    background-color: #14251b;
+    border: 1px solid #245c36;
+}
+QLabel#DependencyStatus[state="partial"] {
+    color: #ffedc2;
+    background-color: #2b2413;
+    border: 1px solid #745a22;
+}
+QLabel#DependencyStatus[state="warning"] {
+    color: #ffd8d4;
+    background-color: #301817;
+    border: 1px solid #71322b;
+}
+QLabel#QueueSummary {
+    color: #b8c7d8;
+    padding: 2px 8px;
+    background-color: #20242a;
+    border: 1px solid #2d3a46;
+    border-radius: 10px;
+}
+QPushButton#ClearUrlsButton {
+    background-color: #20242a;
+    border: 1px solid #2d3a46;
+    color: #d8e6f7;
+    min-height: 22px;
+    padding: 4px 8px;
+}
+QPushButton#ClearUrlsButton:hover {
+    background-color: #26313c;
+    border-color: #3d5268;
 }
 
 /* Check Network Button */
