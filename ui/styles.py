@@ -218,14 +218,24 @@ QLabel#QueueSummary {
     border: 1px solid #2d3a46;
     border-radius: 10px;
 }
-QPushButton#ClearUrlsButton {
+QLabel#QueueSummary[state="notice"] {
+    color: #ffedc2;
+    background-color: #2b2413;
+    border-color: #745a22;
+}
+QLabel#QueueSummary[state="warning"] {
+    color: #ffd8d4;
+    background-color: #301817;
+    border-color: #71322b;
+}
+QPushButton#ImportUrlsButton, QPushButton#CleanUrlsButton, QPushButton#ClearUrlsButton {
     background-color: #20242a;
     border: 1px solid #2d3a46;
     color: #d8e6f7;
     min-height: 22px;
     padding: 4px 8px;
 }
-QPushButton#ClearUrlsButton:hover {
+QPushButton#ImportUrlsButton:hover, QPushButton#CleanUrlsButton:hover, QPushButton#ClearUrlsButton:hover {
     background-color: #26313c;
     border-color: #3d5268;
 }

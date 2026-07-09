@@ -18,10 +18,11 @@ import yt_dlp
 from PySide6.QtCore import QObject, Signal, QThread
 
 from core.config import DownloadOptions
-from core.utils import sanitize_template, format_status, format_eta, get_aria2c_path, get_ffmpeg_path
+from core.utils import format_status, format_eta
 from core.history import DownloadHistory
 from core.errors import classify_error, FormatNotAvailableError, DownloadError
 from core.network import NetworkMonitor
+from core.yt_dlp_options import build_yt_dlp_options as build_yt_dlp_options_async
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DownloadItemContext:
     """Per-download mutable state isolated from other concurrent workers."""
+
     url: str
     current_output_file: Optional[str] = None
     last_logged_pct: int = -10
@@ -37,122 +39,6 @@ class DownloadItemContext:
     last_item_stem: Optional[str] = None
     current_title: Optional[str] = None
     last_error: str = ""
-
-
-def build_yt_dlp_options_async(
-    opts: DownloadOptions,
-    progress_hook: Callable,
-    attempt: int = 0
-) -> Dict:
-    """Build yt-dlp options with async support and optional aria2c integration."""
-    outtmpl = os.path.join(opts.directory, f"{sanitize_template(opts.outtmpl_template)}.%(ext)s")
-
-    ffmpeg_loc = get_ffmpeg_path()
-
-    base: Dict = {
-        "outtmpl": outtmpl,
-        "progress_hooks": [progress_hook],
-        "quiet": False,
-        "verbose": False,
-        "retries": opts.retries,
-        "fragment_retries": opts.fragment_retries,
-        "noplaylist": not opts.download_playlist,
-        "restrictfilenames": opts.restrict_filenames,
-        "ignoreerrors": False,
-        "noprogress": False,
-        "concurrent_fragment_downloads": opts.concurrent_fragment_downloads,
-        "nocheckcertificate": opts.nocheckcertificate,
-        "prefer_ffmpeg": True,
-    }
-
-    if ffmpeg_loc:
-        base["ffmpeg_location"] = ffmpeg_loc
-
-    # Browser cookies take priority over cookie file
-    if opts.cookies_from_browser:
-        base["cookiesfrombrowser"] = opts.cookies_from_browser
-    elif opts.cookies:
-        base["cookiefile"] = opts.cookies
-
-    # Aria2c integration for high-performance downloads
-    if getattr(opts, 'use_aria2c', False):
-        max_connections = getattr(opts, 'max_connections', 16)
-        aria2c_loc = get_aria2c_path()
-        base.update({
-            "external_downloader": aria2c_loc or "aria2c",
-            "external_downloader_args": {
-                "aria2c": [
-                    "-x", str(max_connections),
-                    "-s", str(max_connections),
-                    "-k", "1M",
-                    "--file-allocation=none",
-                    "--optimize-concurrent-downloads=true",
-                ]
-            }
-        })
-
-    custom_ffmpeg_args = []
-
-    if opts.ffmpeg_args:
-        custom_ffmpeg_args.append(opts.ffmpeg_args)
-
-    if opts.ffmpeg_add_args:
-        custom_ffmpeg_args.append(opts.ffmpeg_add_args)
-    if opts.ffmpeg_override_args:
-        custom_ffmpeg_args.append(opts.ffmpeg_override_args)
-
-    if custom_ffmpeg_args:
-        import shlex
-        final_args = []
-        for arg_str in custom_ffmpeg_args:
-            try:
-                final_args.extend(shlex.split(arg_str))
-            except Exception as e:
-                logger.warning(f"Failed to parse ffmpeg arg '{arg_str}': {e}")
-
-        if final_args:
-            base["postprocessor_args"] = {"ffmpeg": final_args}
-
-    if opts.is_mp3:
-        bitrate = "".join(filter(str.isdigit, opts.quality)) or "192"
-        base.update({
-            "format": "bestaudio/best",
-            "postprocessors": [
-                {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": bitrate},
-                {"key": "FFmpegMetadata"},
-                {"key": "EmbedThumbnail"},
-            ],
-            "writethumbnail": True,
-        })
-    else:
-        if attempt == 0:
-            if opts.quality.lower() == "best":
-                fmt = "bv*+ba/best"
-            else:
-                try:
-                    h = int("".join(filter(str.isdigit, opts.quality)))
-                except ValueError:
-                    h = 1080
-                fmt = f"bv*[height<={h}]+ba/b[height<={h}]/best[height<={h}]/best"
-        elif attempt == 1:
-            if opts.quality.lower() == "best":
-                fmt = "best[ext=mp4]/best"
-            else:
-                try:
-                    h = int("".join(filter(str.isdigit, opts.quality)))
-                except ValueError:
-                    h = 1080
-                fmt = f"best[height<={h}][ext=mp4]/best[height<={h}]/best"
-        else:
-            fmt = "best"
-
-        base.update({
-            "format": fmt,
-            "merge_output_format": "mp4",
-            "postprocessors": [{"key": "FFmpegMetadata"}],
-        })
-
-    return base
 
 
 class AsyncDownloadManager:
@@ -193,17 +79,14 @@ class AsyncDownloadManager:
         self.on_item_finished = on_item_finished
         self.on_all_finished = on_all_finished
 
-        # Async primitives replacing threading.Event
         self._cancelled = False
         self._skip_current = False
         self._paused = False
         self._pause_event = asyncio.Event()
         self._pause_event.set()
 
-        # Queue and concurrency control
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._semaphore = asyncio.Semaphore(max_concurrent)
-        self._active_downloads: Set[asyncio.Task] = set()
 
         self._thread_local = threading.local()
 
@@ -257,7 +140,9 @@ class AsyncDownloadManager:
 
     def _progress_hook(self, d: Dict) -> None:
         """Progress hook called by yt-dlp (runs in executor thread)."""
-        ctx: Optional[DownloadItemContext] = getattr(self._thread_local, "context", None)
+        ctx: Optional[DownloadItemContext] = getattr(
+            self._thread_local, "context", None
+        )
         if ctx is None:
             return
 
@@ -294,24 +179,22 @@ class AsyncDownloadManager:
                 filename = d.get("filename") or d.get("tmpfilename")
                 if filename:
                     ctx.current_output_file = filename
-                    try:
-                        ctx.artifact_candidates.add(filename)
-                        ctx.last_item_dir = os.path.dirname(filename) or self.options.directory
-                        base = os.path.basename(filename)
-                        ctx.last_item_stem = os.path.splitext(base)[0]
-                    except Exception:
-                        pass
+                    ctx.artifact_candidates.add(filename)
+                    ctx.last_item_dir = (
+                        os.path.dirname(filename) or self.options.directory
+                    )
+                    base = os.path.basename(filename)
+                    ctx.last_item_stem = os.path.splitext(base)[0]
                 tmp = d.get("tmpfilename")
                 if tmp:
-                    try:
-                        ctx.artifact_candidates.add(tmp)
-                        if not ctx.last_item_dir:
-                            ctx.last_item_dir = os.path.dirname(tmp) or self.options.directory
-                        if not ctx.last_item_stem:
-                            base = os.path.basename(tmp)
-                            ctx.last_item_stem = os.path.splitext(base)[0]
-                    except Exception:
-                        pass
+                    ctx.artifact_candidates.add(tmp)
+                    if not ctx.last_item_dir:
+                        ctx.last_item_dir = (
+                            os.path.dirname(tmp) or self.options.directory
+                        )
+                    if not ctx.last_item_stem:
+                        base = os.path.basename(tmp)
+                        ctx.last_item_stem = os.path.splitext(base)[0]
 
             elif status == "finished":
                 self._emit_status("Processing downloaded file...")
@@ -319,18 +202,19 @@ class AsyncDownloadManager:
                 filename = d.get("filename") or ctx.current_output_file
                 if filename:
                     ctx.current_output_file = filename
-                    try:
-                        ctx.artifact_candidates.add(filename)
-                        ctx.last_item_dir = os.path.dirname(filename) or self.options.directory
-                        base = os.path.basename(filename)
-                        ctx.last_item_stem = os.path.splitext(base)[0]
-                    except Exception:
-                        pass
+                    ctx.artifact_candidates.add(filename)
+                    ctx.last_item_dir = (
+                        os.path.dirname(filename) or self.options.directory
+                    )
+                    base = os.path.basename(filename)
+                    ctx.last_item_stem = os.path.splitext(base)[0]
                 self._emit_progress(100)
         except Exception as e:
             self._emit_log(f"Progress hook error: {e!r}")
 
-    async def _download_with_fallback(self, url: str, ctx: DownloadItemContext) -> tuple[bool, str]:
+    async def _download_with_fallback(
+        self, url: str, ctx: DownloadItemContext
+    ) -> tuple[bool, str]:
         """Download a single URL with format fallback."""
         max_attempts = 3 if not self.options.is_mp3 else 1
         ctx.current_title = None
@@ -346,21 +230,20 @@ class AsyncDownloadManager:
                 )
 
                 if attempt > 0:
-                    self._emit_log(f"Retrying with fallback format (attempt {attempt + 1}/{max_attempts})")
+                    self._emit_log(
+                        f"Retrying with fallback format (attempt {attempt + 1}/{max_attempts})"
+                    )
 
-                # Run blocking yt-dlp in executor
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(
-                    self._executor,
-                    self._run_yt_dlp,
-                    url,
-                    ydl_opts,
-                    ctx
+                    self._executor, self._run_yt_dlp, url, ydl_opts, ctx
                 )
                 return True, ctx.last_error
 
             except Exception as e:
-                logger.warning(f"Attempt {attempt + 1} failed for {url}: {e}", exc_info=True)
+                logger.warning(
+                    f"Attempt {attempt + 1} failed for {url}: {e}", exc_info=True
+                )
                 error_str = str(e)
                 ctx.last_error = error_str
                 classified_error = classify_error(e)
@@ -373,7 +256,9 @@ class AsyncDownloadManager:
                         self._emit_log(f"All format attempts failed for {url}")
                         raise
                 elif isinstance(classified_error, DownloadError):
-                    self._emit_log(f"Download error: {classified_error.__class__.__name__}: {error_str}")
+                    self._emit_log(
+                        f"Download error: {classified_error.__class__.__name__}: {error_str}"
+                    )
                     if attempt < max_attempts - 1:
                         continue
                 raise
@@ -384,21 +269,16 @@ class AsyncDownloadManager:
         """Run yt-dlp download (blocking, runs in executor)."""
         self._thread_local.context = ctx
         try:
-            # Extract info first
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                if info:
                     ctx.current_title = info.get("title") or "Unknown title"
                     uploader = info.get("uploader") or info.get("channel") or "Unknown"
                     dur = info.get("duration")
                     dur_str = format_eta(dur) if dur else "?"
-                    self._emit_log(f"Info: {ctx.current_title} | Uploader: {uploader} | Duration: {dur_str}")
-            except Exception as ie:
-                self._emit_log(f"Info probe failed: {ie}")
-
-            # Perform download
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+                    self._emit_log(
+                        f"Info: {ctx.current_title} | Uploader: {uploader} | Duration: {dur_str}"
+                    )
         finally:
             self._thread_local.context = None
 
@@ -408,7 +288,9 @@ class AsyncDownloadManager:
             return False
 
         path_norm = os.path.normcase(os.path.abspath(path))
-        if final_output and path_norm == os.path.normcase(os.path.abspath(final_output)):
+        if final_output and path_norm == os.path.normcase(
+            os.path.abspath(final_output)
+        ):
             return False
 
         lower_name = os.path.basename(path_norm).lower()
@@ -431,12 +313,16 @@ class AsyncDownloadManager:
                     if not os.path.isabs(abs_path):
                         work_dir = ctx.last_item_dir or self.options.directory
                         abs_path = os.path.join(work_dir, abs_path)
-                    if os.path.isfile(abs_path) and self._is_temporary_artifact(abs_path, ctx.current_output_file):
+                    if os.path.isfile(abs_path) and self._is_temporary_artifact(
+                        abs_path, ctx.current_output_file
+                    ):
                         os.remove(abs_path)
                         removed += 1
                         self._emit_log(f"Cleanup: removed {abs_path}")
                     elif os.path.isfile(abs_path):
-                        self._emit_log(f"Cleanup: preserved final/non-temp file {abs_path}")
+                        self._emit_log(
+                            f"Cleanup: preserved final/non-temp file {abs_path}"
+                        )
                 except Exception as e:
                     self._emit_log(f"Cleanup: failed to remove {path}: {e}")
             if removed == 0:
@@ -495,43 +381,39 @@ class AsyncDownloadManager:
                         title=ctx.current_title or "Unknown",
                         format="mp3" if self.options.is_mp3 else "mp4",
                         quality=self.options.quality,
-                        output_path=final_path
+                        output_path=final_path,
                     )
                 if self.on_item_finished:
                     self.on_item_finished(url, True, final_path)
                 self._emit_log(f"Finished: {final_path}")
             else:
                 self._fail_count += 1
-                try:
-                    self._cleanup_artifacts_for_current_item(ctx)
-                except Exception:
-                    pass
+                self._cleanup_artifacts_for_current_item(ctx)
                 if self._history:
                     self._history.add_failed(
                         url=url,
                         title=ctx.current_title or "Unknown",
                         format="mp3" if self.options.is_mp3 else "mp4",
                         quality=self.options.quality,
-                        error_message=error_msg or "Download failed"
+                        error_message=error_msg or "Download failed",
                     )
                 if self.on_item_finished:
-                    self.on_item_finished(url, False, "Download failed after all attempts")
+                    self.on_item_finished(
+                        url, False, "Download failed after all attempts"
+                    )
                 self._emit_log(f"Failed after all attempts: {url}")
 
         except Exception as e:
             error_str = str(e)
             if error_str == "User cancelled":
-                try:
-                    self._cleanup_artifacts_for_current_item(ctx)
-                except Exception:
-                    pass
+                self._cleanup_artifacts_for_current_item(ctx)
                 if self._history:
                     self._history.add_failed(
                         url=url,
                         title=ctx.current_title or "Unknown",
                         format="mp3" if self.options.is_mp3 else "mp4",
                         quality=self.options.quality,
-                        error_message="Cancelled by user"
+                        error_message="Cancelled by user",
                     )
                 if self.on_item_finished:
                     self.on_item_finished(url, False, "Cancelled")
@@ -539,17 +421,14 @@ class AsyncDownloadManager:
                 raise  # Propagate to stop processing
 
             if error_str == "Skip current":
-                try:
-                    self._cleanup_artifacts_for_current_item(ctx)
-                except Exception:
-                    pass
+                self._cleanup_artifacts_for_current_item(ctx)
                 if self._history:
                     self._history.add_failed(
                         url=url,
                         title=ctx.current_title or "Unknown",
                         format="mp3" if self.options.is_mp3 else "mp4",
                         quality=self.options.quality,
-                        error_message="Skipped by user"
+                        error_message="Skipped by user",
                     )
                 if self.on_item_finished:
                     self.on_item_finished(url, False, "Skipped")
@@ -557,17 +436,14 @@ class AsyncDownloadManager:
                 return  # Continue to next item
 
             self._fail_count += 1
-            try:
-                self._cleanup_artifacts_for_current_item(ctx)
-            except Exception:
-                pass
+            self._cleanup_artifacts_for_current_item(ctx)
             if self._history:
                 self._history.add_failed(
                     url=url,
                     title=ctx.current_title or "Unknown",
                     format="mp3" if self.options.is_mp3 else "mp4",
                     quality=self.options.quality,
-                    error_message=error_str
+                    error_message=error_str,
                 )
             msg = f"Error downloading {url}: {e}"
             logger.error(msg, exc_info=True)
@@ -582,36 +458,34 @@ class AsyncDownloadManager:
         ydl_ver = "unknown"
         try:
             from yt_dlp.version import __version__ as yv
-            ydl_ver = yv
-        except Exception:
-            pass
-        self._emit_log(f"yt-dlp version: {ydl_ver}")
-        self._emit_log(f"Using async download manager with {self.max_concurrent} concurrent workers")
 
-        # Add all URLs to queue
+            ydl_ver = yv
+        except ImportError as error:
+            logger.debug(
+                "Unable to resolve the yt-dlp version: %s", error, exc_info=True
+            )
+        self._emit_log(f"yt-dlp version: {ydl_ver}")
+        self._emit_log(
+            f"Using async download manager with {self.max_concurrent} concurrent workers"
+        )
+
         for url in self.urls:
             await self._queue.put(url)
 
-        # Create worker tasks
         workers = [
-            asyncio.create_task(self._worker())
-            for _ in range(self.max_concurrent)
+            asyncio.create_task(self._worker()) for _ in range(self.max_concurrent)
         ]
 
-        # Wait for all downloads to complete or be cancelled
         try:
             await self._queue.join()
-        except asyncio.CancelledError:
-            pass
+        except asyncio.CancelledError as error:
+            logger.debug("Download queue join was cancelled: %s", error)
         finally:
-            # Cancel any remaining workers
             for w in workers:
                 w.cancel()
 
-        # Wait for workers to finish
         await asyncio.gather(*workers, return_exceptions=True)
 
-        # Shutdown executor
         self._executor.shutdown(wait=False)
 
         if self.on_all_finished:
@@ -629,6 +503,7 @@ class AsyncVideoDownloadWorker(QObject):
     Qt Wrapper around AsyncDownloadManager.
     Runs the async event loop in a separate QThread.
     """
+
     progress = Signal(int)
     status = Signal(str)
     itemStarted = Signal(str)
@@ -642,7 +517,7 @@ class AsyncVideoDownloadWorker(QObject):
         urls: List[str],
         options: DownloadOptions,
         history: Optional[DownloadHistory] = None,
-        max_concurrent: int = 3
+        max_concurrent: int = 3,
     ):
         super().__init__()
         self._urls = urls
@@ -665,7 +540,7 @@ class AsyncVideoDownloadWorker(QObject):
             on_item_finished=self.itemFinished.emit,
             on_all_finished=self.allFinished.emit,
             history=self._history,
-            max_concurrent=self._max_concurrent
+            max_concurrent=self._max_concurrent,
         )
 
     def cancel(self) -> None:

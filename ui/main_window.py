@@ -1,5 +1,6 @@
+import logging
 import os
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 from PySide6.QtCore import Qt, QThread, QSettings
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -34,6 +35,12 @@ from core.utils import open_in_file_manager
 from core.history import DownloadHistory
 from ui.components.title_bar import CustomTitleBar
 from ui.components import HistoryDialog
+from ui.url_queue import QueueMergeResult, analyze_url_queue, merge_url_queue
+
+
+logger = logging.getLogger(__name__)
+
+_MAX_URL_LIST_BYTES = 5 * 1024 * 1024
 
 
 class MainWindow(QMainWindow):
@@ -47,7 +54,7 @@ class MainWindow(QMainWindow):
         self._async_worker: Optional[AsyncVideoDownloadWorker] = None
         self._history = DownloadHistory()
         self._use_async = True  # Enable async download manager by default
-        
+
         deps = check_dependencies()
         self._ffmpeg_path = deps["ffmpeg"]
         self._aria2c_path = deps["aria2c"]
@@ -56,7 +63,7 @@ class MainWindow(QMainWindow):
         self._aria2c_available: bool = self._aria2c_path != "Not found"
         self._ffmpeg_version = deps.get("ffmpeg_version", "unknown")
         self._aria2c_version = deps.get("aria2c_version", "unknown")
-        
+
         self._downloading_total: int = 0
         self._downloading_started: int = 0
         self._downloading_completed: int = 0
@@ -84,7 +91,6 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget(self)
         root.addWidget(self.tabs, 1)
 
-        # === Download Tab ===
         download_tab = QWidget()
         download_layout = QVBoxLayout(download_tab)
         download_layout.setContentsMargins(8, 8, 8, 8)
@@ -109,8 +115,12 @@ class MainWindow(QMainWindow):
 
         self.open_folder_button = QToolButton(self)
         self.open_folder_button.setObjectName("OpenFolderButton")
-        self.open_folder_button.setIcon(self.style().standardIcon(QStyle.SP_DialogOpenButton))
-        self.open_folder_button.setToolTip("Open the current download folder in your file manager")
+        self.open_folder_button.setIcon(
+            self.style().standardIcon(QStyle.SP_DialogOpenButton)
+        )
+        self.open_folder_button.setToolTip(
+            "Open the current download folder in your file manager"
+        )
         self.open_folder_button.clicked.connect(self._open_folder)
         dir_row.addWidget(self.open_folder_button, 0)
 
@@ -120,19 +130,39 @@ class MainWindow(QMainWindow):
         self.dependency_label = QLabel("Checking tools...", self)
         self.dependency_label.setObjectName("DependencyStatus")
         self.dependency_label.setWordWrap(True)
-        self.dependency_label.setToolTip("Detected downloader toolchain and local paths")
+        self.dependency_label.setToolTip(
+            "Detected downloader toolchain and local paths"
+        )
         dependency_row.addWidget(self.dependency_label, 1)
         download_layout.addLayout(dependency_row)
 
         url_header = QHBoxLayout()
         url_label = QLabel("URLs:", self)
-        url_label.setToolTip("Paste one URL per line. You can also drag & drop links here.")
+        url_label.setToolTip(
+            "Paste one URL per line. You can also drag & drop links here."
+        )
         url_header.addWidget(url_label, 0)
         self.queue_label = QLabel("Queue: 0 links", self)
         self.queue_label.setObjectName("QueueSummary")
         self.queue_label.setToolTip("How many non-empty lines are queued")
         url_header.addWidget(self.queue_label, 0)
         url_header.addStretch(1)
+
+        self.import_urls_button = QPushButton("Import List", self)
+        self.import_urls_button.setObjectName("ImportUrlsButton")
+        self.import_urls_button.setToolTip("Add links from a UTF-8 text file")
+        self.import_urls_button.clicked.connect(self._import_url_list)
+        url_header.addWidget(self.import_urls_button, 0)
+
+        self.clean_urls_button = QPushButton("Clean Queue", self)
+        self.clean_urls_button.setObjectName("CleanUrlsButton")
+        self.clean_urls_button.setToolTip(
+            "Remove duplicate, invalid, and comment lines"
+        )
+        self.clean_urls_button.clicked.connect(self._clean_url_queue)
+        self.clean_urls_button.setEnabled(False)
+        url_header.addWidget(self.clean_urls_button, 0)
+
         self.clear_urls_button = QPushButton("Clear URLs", self)
         self.clear_urls_button.setObjectName("ClearUrlsButton")
         self.clear_urls_button.setToolTip("Clear the current URL queue")
@@ -141,10 +171,14 @@ class MainWindow(QMainWindow):
         download_layout.addLayout(url_header)
 
         self.url_input = QPlainTextEdit(self)
-        self.url_input.setPlaceholderText("Enter one URL per line (YouTube, Twitter, TikTok, etc.)")
+        self.url_input.setPlaceholderText(
+            "Enter one URL per line (YouTube, Twitter, TikTok, etc.)"
+        )
         self.url_input.setTabChangesFocus(True)
         self.url_input.setMinimumHeight(96)
-        self.url_input.setToolTip("Paste one URL per line. You can also drag & drop links here.")
+        self.url_input.setToolTip(
+            "Paste one URL per line. You can also drag & drop links here."
+        )
         download_layout.addWidget(self.url_input, 1)
 
         fmt_row = QHBoxLayout()
@@ -157,12 +191,16 @@ class MainWindow(QMainWindow):
         self.mp3_btn = QPushButton("MP3", self)
         self.mp3_btn.setCheckable(True)
         self.mp3_btn.setProperty("formatToggle", True)
-        self.mp3_btn.setToolTip("Audio-only download. Converts best audio to MP3 at the selected bitrate.")
+        self.mp3_btn.setToolTip(
+            "Audio-only download. Converts best audio to MP3 at the selected bitrate."
+        )
 
         self.mp4_btn = QPushButton("MP4", self)
         self.mp4_btn.setCheckable(True)
         self.mp4_btn.setProperty("formatToggle", True)
-        self.mp4_btn.setToolTip("Video download (MP4). Respects the maximum resolution you select.")
+        self.mp4_btn.setToolTip(
+            "Video download (MP4). Respects the maximum resolution you select."
+        )
 
         self.fmt_group = QButtonGroup(self)
         self.fmt_group.setExclusive(True)
@@ -175,11 +213,15 @@ class MainWindow(QMainWindow):
         fmt_row.addSpacing(12)
 
         qual_label = QLabel("Quality:", self)
-        qual_label.setToolTip("MP3: bitrate (kbps). MP4: maximum video resolution. 'Best' picks the highest available.")
+        qual_label.setToolTip(
+            "MP3: bitrate (kbps). MP4: maximum video resolution. 'Best' picks the highest available."
+        )
         fmt_row.addWidget(qual_label, 0)
 
         self.quality_combo = QComboBox(self)
-        self.quality_combo.setToolTip("Select bitrate for MP3, or resolution cap for MP4.")
+        self.quality_combo.setToolTip(
+            "Select bitrate for MP3, or resolution cap for MP4."
+        )
         fmt_row.addWidget(self.quality_combo, 0)
 
         fmt_row.addStretch(1)
@@ -187,55 +229,77 @@ class MainWindow(QMainWindow):
 
         tmpl_row = QHBoxLayout()
         tmpl_label = QLabel("Output template:", self)
-        tmpl_label.setToolTip("Naming pattern (yt_dlp template). The file extension is added automatically.")
+        tmpl_label.setToolTip(
+            "Naming pattern (yt_dlp template). The file extension is added automatically."
+        )
         tmpl_row.setSpacing(6)
         tmpl_row.addWidget(tmpl_label, 0)
 
         self.template_presets = QComboBox(self)
-        self.template_presets.addItems([
-            "%(title).150s",
-            "%(uploader)s - %(title).150s",
-            "%(playlist_title)s/%(playlist_index)03d - %(title).150s",
-            "%(channel)s/%(upload_date)s - %(title).100s",
-        ])
-        self.template_presets.setToolTip("Pick a common naming pattern for file names/folders.")
+        self.template_presets.addItems(
+            [
+                "%(title).150s",
+                "%(uploader)s - %(title).150s",
+                "%(playlist_title)s/%(playlist_index)03d - %(title).150s",
+                "%(channel)s/%(upload_date)s - %(title).100s",
+            ]
+        )
+        self.template_presets.setToolTip(
+            "Pick a common naming pattern for file names/folders."
+        )
         tmpl_row.addWidget(self.template_presets, 0)
 
         self.template_line = QLineEdit(self)
         self.template_line.setPlaceholderText("%(title).150s")
-        self.template_line.setToolTip("Freeform yt_dlp output template (no extension). Example: %(uploader)s - %(title).150s")
+        self.template_line.setToolTip(
+            "Freeform yt_dlp output template (no extension). Example: %(uploader)s - %(title).150s"
+        )
         tmpl_row.addWidget(self.template_line, 1)
         download_layout.addLayout(tmpl_row)
 
         ffmpeg_row = QHBoxLayout()
         ffmpeg_label = QLabel("FFmpeg Args:", self)
-        ffmpeg_label.setToolTip("Custom FFmpeg arguments (e.g. -vcodec libx264). Optional.")
+        ffmpeg_label.setToolTip(
+            "Custom FFmpeg arguments (e.g. -vcodec libx264). Optional."
+        )
         ffmpeg_row.setSpacing(6)
         ffmpeg_row.addWidget(ffmpeg_label, 0)
-        
+
         self.ffmpeg_input = QLineEdit(self)
-        self.ffmpeg_input.setPlaceholderText("Optional: Custom FFmpeg args (e.g. -vcodec libx264)")
+        self.ffmpeg_input.setPlaceholderText(
+            "Optional: Custom FFmpeg args (e.g. -vcodec libx264)"
+        )
         self.ffmpeg_input.setToolTip("Pass extra arguments to FFmpeg post-processor.")
         ffmpeg_row.addWidget(self.ffmpeg_input, 1)
 
         self.ffmpeg_mode = QComboBox(self)
         self.ffmpeg_mode.addItems(["Append", "Override"])
-        self.ffmpeg_mode.setToolTip("Append: Add to defaults. Override: Replace/Force specific args.")
+        self.ffmpeg_mode.setToolTip(
+            "Append: Add to defaults. Override: Replace/Force specific args."
+        )
         self.ffmpeg_mode.setFixedWidth(100)
         ffmpeg_row.addWidget(self.ffmpeg_mode, 0)
-        
+
         download_layout.addLayout(ffmpeg_row)
 
         opt_row = QHBoxLayout()
         self.playlist_checkbox = QCheckBox("Download playlist", self)
-        self.playlist_checkbox.setToolTip("If the link is a playlist/series, download all items. Otherwise only the single video.")
+        self.playlist_checkbox.setToolTip(
+            "If the link is a playlist/series, download all items. Otherwise only the single video."
+        )
         self.restrict_checkbox = QCheckBox("Restrict filenames", self)
-        self.restrict_checkbox.setToolTip("Use only ASCII-safe characters in file names (helps on some filesystems).")
+        self.restrict_checkbox.setToolTip(
+            "Use only ASCII-safe characters in file names (helps on some filesystems)."
+        )
         self.async_checkbox = QCheckBox("Async mode", self)
-        self.async_checkbox.setToolTip("Use async download manager for better concurrency and performance")
+        self.async_checkbox.setToolTip(
+            "Use async download manager for better concurrency and performance"
+        )
         self.async_checkbox.setChecked(True)
         self.aria2c_checkbox = QCheckBox("Use aria2c", self)
-        self.aria2c_checkbox.setToolTip("Use aria2c for multi-connection downloads (faster but requires aria2c binary)")
+        self.aria2c_checkbox.setToolTip(
+            "Use aria2c for multi-connection downloads (faster but requires aria2c binary)"
+        )
         opt_row.addWidget(self.playlist_checkbox, 0)
         opt_row.addWidget(self.restrict_checkbox, 0)
         opt_row.addWidget(self.async_checkbox, 0)
@@ -247,29 +311,33 @@ class MainWindow(QMainWindow):
         actions_row = QHBoxLayout()
         self.history_button = QPushButton("History", self)
         self.history_button.setObjectName("HistoryButton")
-        self.history_button.setToolTip("View download history and manage failed downloads")
+        self.history_button.setToolTip(
+            "View download history and manage failed downloads"
+        )
         self.history_button.clicked.connect(self._show_history_dialog)
-        
+
         self.network_label = QLabel("Network: Checking...", self)
         self.network_label.setObjectName("NetworkLabel")
         self.network_label.setToolTip("Current network connection status")
-        
+
         self.check_network_button = QPushButton("Check Network", self)
         self.check_network_button.setObjectName("CheckNetworkButton")
         self.check_network_button.setToolTip("Manually check internet connection")
         self.check_network_button.clicked.connect(self._check_network_status)
-        
+
         actions_row.addWidget(self.history_button, 0)
         actions_row.addWidget(self.network_label, 0)
         actions_row.addWidget(self.check_network_button, 0)
         actions_row.addStretch(1)
-        
+
         self.start_button = QPushButton("Start Download", self)
         self.start_button.setObjectName("DownloadButton")
         self.start_button.setToolTip("Start downloading all URLs in the list")
         self.cancel_button = QPushButton("Cancel", self)
         self.cancel_button.setObjectName("CancelButton")
-        self.cancel_button.setToolTip("Request a safe stop after the current file finishes processing")
+        self.cancel_button.setToolTip(
+            "Request a safe stop after the current file finishes processing"
+        )
         self.cancel_button.setEnabled(False)
         self.pause_button = QPushButton("Pause", self)
         self.pause_button.setObjectName("PauseButton")
@@ -288,7 +356,6 @@ class MainWindow(QMainWindow):
 
         self.tabs.addTab(download_tab, "Download")
 
-        # === Cookies Tab ===
         cookies_tab = QWidget()
         cookies_layout = QVBoxLayout(cookies_tab)
         cookies_layout.setContentsMargins(8, 8, 8, 8)
@@ -301,19 +368,23 @@ class MainWindow(QMainWindow):
 
         browser_row = QHBoxLayout()
         browser_label = QLabel("Browser:", self)
-        browser_label.setToolTip("Select browser to fetch cookies from. Only officially supported browsers work.")
+        browser_label.setToolTip(
+            "Select browser to fetch cookies from. Only officially supported browsers work."
+        )
         self.browser_combo = QComboBox(self)
-        self.browser_combo.addItems([
-            "None",
-            "brave",
-            "chrome",
-            "chromium",
-            "edge",
-            "firefox",
-            "opera",
-            "safari",
-            "vivaldi",
-        ])
+        self.browser_combo.addItems(
+            [
+                "None",
+                "brave",
+                "chrome",
+                "chromium",
+                "edge",
+                "firefox",
+                "opera",
+                "safari",
+                "vivaldi",
+            ]
+        )
         self.browser_combo.setToolTip(
             "Select browser to extract cookies from.\n"
             "For Chromium forks (Thorium, Ungoogled, etc.), use Cookie File instead."
@@ -325,10 +396,16 @@ class MainWindow(QMainWindow):
 
         profile_row = QHBoxLayout()
         profile_label = QLabel("Profile:", self)
-        profile_label.setToolTip("Browser profile name (optional). Leave empty for default profile.")
+        profile_label.setToolTip(
+            "Browser profile name (optional). Leave empty for default profile."
+        )
         self.profile_input = QLineEdit(self)
-        self.profile_input.setPlaceholderText("Optional: Browser profile name (e.g., 'Default', 'Profile 1')")
-        self.profile_input.setToolTip("Specify browser profile if you have multiple profiles.")
+        self.profile_input.setPlaceholderText(
+            "Optional: Browser profile name (e.g., 'Default', 'Profile 1')"
+        )
+        self.profile_input.setToolTip(
+            "Specify browser profile if you have multiple profiles."
+        )
         self.profile_input.textChanged.connect(self._save_settings)
         profile_row.addWidget(profile_label, 0)
         profile_row.addWidget(self.profile_input, 1)
@@ -336,19 +413,27 @@ class MainWindow(QMainWindow):
 
         advanced_row = QHBoxLayout()
         keyring_label = QLabel("Keyring:", self)
-        keyring_label.setToolTip("Keyring backend (Linux only, optional). Usually not needed.")
+        keyring_label.setToolTip(
+            "Keyring backend (Linux only, optional). Usually not needed."
+        )
         self.keyring_input = QLineEdit(self)
         self.keyring_input.setPlaceholderText("Optional: Keyring backend")
-        self.keyring_input.setToolTip("For Linux systems with custom keyring configurations.")
+        self.keyring_input.setToolTip(
+            "For Linux systems with custom keyring configurations."
+        )
         self.keyring_input.textChanged.connect(self._save_settings)
         advanced_row.addWidget(keyring_label, 0)
         advanced_row.addWidget(self.keyring_input, 1)
 
         container_label = QLabel("Container:", self)
-        container_label.setToolTip("Firefox container name (optional). For Multi-Account Containers extension.")
+        container_label.setToolTip(
+            "Firefox container name (optional). For Multi-Account Containers extension."
+        )
         self.container_input = QLineEdit(self)
         self.container_input.setPlaceholderText("Optional: Firefox container")
-        self.container_input.setToolTip("Firefox Multi-Account Container name (e.g., 'Personal', 'Work').")
+        self.container_input.setToolTip(
+            "Firefox Multi-Account Container name (e.g., 'Personal', 'Work')."
+        )
         self.container_input.textChanged.connect(self._save_settings)
         advanced_row.addWidget(container_label, 0)
         advanced_row.addWidget(self.container_input, 1)
@@ -362,10 +447,16 @@ class MainWindow(QMainWindow):
         file_group_layout.setSpacing(6)
 
         cookie_file_label = QLabel("Cookie File:", self)
-        cookie_file_label.setToolTip("Path to a Netscape-format cookies.txt file. Used if browser cookies are disabled.")
+        cookie_file_label.setToolTip(
+            "Path to a Netscape-format cookies.txt file. Used if browser cookies are disabled."
+        )
         self.cookie_file_input = QLineEdit(self)
-        self.cookie_file_input.setPlaceholderText("Path to cookies.txt (Netscape format)")
-        self.cookie_file_input.setToolTip("Netscape-format cookie file exported from browser.")
+        self.cookie_file_input.setPlaceholderText(
+            "Path to cookies.txt (Netscape format)"
+        )
+        self.cookie_file_input.setToolTip(
+            "Netscape-format cookie file exported from browser."
+        )
         self.cookie_file_input.textChanged.connect(self._save_settings)
         self.cookie_file_browse = QToolButton(self)
         self.cookie_file_browse.setObjectName("CookieBrowseButton")
@@ -383,7 +474,7 @@ class MainWindow(QMainWindow):
         info_label = QLabel(
             "<b>Tip:</b> Browser cookies allow downloading age-restricted or premium content you have access to. "
             "Close the browser before downloading for best results.",
-            self
+            self,
         )
         info_label.setWordWrap(True)
         info_label.setStyleSheet("color: #888; font-size: 11px;")
@@ -414,7 +505,9 @@ class MainWindow(QMainWindow):
         self.log_output = QPlainTextEdit(self)
         self.log_output.setReadOnly(True)
         self.log_output.setMinimumHeight(120)
-        self.log_output.setToolTip("Detailed log of actions, options, progress, and errors.")
+        self.log_output.setToolTip(
+            "Detailed log of actions, options, progress, and errors."
+        )
         root.addWidget(self.log_output, 1)
 
         self.setCentralWidget(central)
@@ -452,7 +545,6 @@ class MainWindow(QMainWindow):
 
         self._check_network_status()
 
-    # --------------- Drag & Drop ---------------
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasUrls() or event.mimeData().hasText():
             event.acceptProposedAction()
@@ -465,26 +557,106 @@ class MainWindow(QMainWindow):
             for url in event.mimeData().urls():
                 if url.isValid():
                     text_parts.append(url.toString())
-        if event.mimeData().hasText():
+        if not text_parts and event.mimeData().hasText():
             txt = event.mimeData().text()
             if txt:
-                text_parts.extend(line.strip() for line in txt.splitlines())
-        urls = [t for t in (part.strip() for part in text_parts) if t]
-        if urls:
-            current = self.url_input.toPlainText().strip()
-            joined = "\\n".join(urls)
-            self.url_input.setPlainText((current + "\\n" + joined).strip() if current else joined)
-            self.append_log(f"Added {len(urls)} URL(s) via drag & drop.")
-            self._update_queue_summary()
+                text_parts.append(txt)
+        if text_parts:
+            self._add_urls_to_queue(text_parts, "drag and drop")
         event.acceptProposedAction()
 
-    # --------------- Settings ---------------
+    def _import_url_list(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import URL List",
+            "",
+            "URL Lists (*.txt *.list);;All Files (*)",
+        )
+        if not file_path:
+            return
+
+        file_name = os.path.basename(file_path) or "selected file"
+        try:
+            file_size = os.path.getsize(file_path)
+            if file_size > _MAX_URL_LIST_BYTES:
+                QMessageBox.warning(
+                    self,
+                    "List Too Large",
+                    "The selected list is larger than 5 MB. "
+                    "Split it into smaller files before importing.",
+                )
+                return
+            with open(file_path, "r", encoding="utf-8-sig") as url_file:
+                contents = url_file.read()
+        except UnicodeError as error:
+            self.append_log(f"Could not import {file_name}: {error}")
+            QMessageBox.warning(
+                self,
+                "Cannot Read List",
+                f"YTDLE could not read {file_name}. Save it as UTF-8 text and try again.",
+            )
+            return
+        except OSError as error:
+            self.append_log(f"Could not import {file_name}: {error}")
+            QMessageBox.warning(
+                self,
+                "Cannot Open List",
+                f"YTDLE could not open {file_name}. Check the file and your permissions, then try again.",
+            )
+            return
+
+        self._add_urls_to_queue((contents,), file_name)
+
+    def _add_urls_to_queue(
+        self,
+        incoming_texts: Iterable[str],
+        source: str,
+    ) -> QueueMergeResult:
+        result = merge_url_queue(
+            self.url_input.toPlainText(),
+            incoming_texts,
+        )
+        if result.added_count:
+            self.url_input.setPlainText(result.text)
+        else:
+            self._update_queue_summary()
+
+        message = self._queue_change_message(result, source)
+        self.status_label.setText(message)
+        self.append_log(message)
+        return result
+
+    @staticmethod
+    def _queue_change_message(result: QueueMergeResult, source: str) -> str:
+        if result.added_count:
+            noun = "link" if result.added_count == 1 else "links"
+            action = f"Added {result.added_count} {noun} from {source}."
+        elif result.duplicate_count or result.invalid_entries:
+            action = f"No new links added from {source}."
+        else:
+            return f"No links found in {source}."
+
+        skipped: list[str] = []
+        if result.duplicate_count:
+            noun = "duplicate" if result.duplicate_count == 1 else "duplicates"
+            skipped.append(f"{result.duplicate_count} {noun}")
+        invalid_count = len(result.invalid_entries)
+        if invalid_count:
+            noun = "invalid entry" if invalid_count == 1 else "invalid entries"
+            skipped.append(f"{invalid_count} {noun}")
+
+        if skipped:
+            action += f" Skipped {' and '.join(skipped)}."
+        return action
+
     def _default_download_dir(self) -> str:
         root_dir = os.path.expanduser("~")
         return os.path.join(root_dir, "YTDLE")
 
     def _load_settings(self) -> None:
-        directory = self.settings.value("directory", self._default_download_dir(), type=str)
+        directory = self.settings.value(
+            "directory", self._default_download_dir(), type=str
+        )
         self.dir_input.setText(directory)
 
         last_is_mp3 = self.settings.value("is_mp3", True, type=bool)
@@ -515,7 +687,7 @@ class MainWindow(QMainWindow):
 
         ffmpeg_args = self.settings.value("ffmpeg_args", "", type=str)
         self.ffmpeg_input.setText(ffmpeg_args)
-        
+
         ffmpeg_mode = self.settings.value("ffmpeg_mode", "Append", type=str)
         idx = self.ffmpeg_mode.findText(ffmpeg_mode)
         if idx >= 0:
@@ -526,16 +698,16 @@ class MainWindow(QMainWindow):
         browser_idx = self.browser_combo.findText(browser)
         if browser_idx >= 0:
             self.browser_combo.setCurrentIndex(browser_idx)
-        
+
         profile = self.settings.value("cookie_profile", "", type=str)
         self.profile_input.setText(profile)
-        
+
         keyring = self.settings.value("cookie_keyring", "", type=str)
         self.keyring_input.setText(keyring)
-        
+
         container = self.settings.value("cookie_container", "", type=str)
         self.container_input.setText(container)
-        
+
         cookie_file = self.settings.value("cookie_file", "", type=str)
         self.cookie_file_input.setText(cookie_file)
 
@@ -548,11 +720,13 @@ class MainWindow(QMainWindow):
         self.settings.setValue("restrict_filenames", self.restrict_checkbox.isChecked())
         self.settings.setValue("use_async", self.async_checkbox.isChecked())
         self.settings.setValue("use_aria2c", self.aria2c_checkbox.isChecked())
-        self.settings.setValue("template_preset_index", self.template_presets.currentIndex())
+        self.settings.setValue(
+            "template_preset_index", self.template_presets.currentIndex()
+        )
         self.settings.setValue("outtmpl_template", self.template_line.text())
         self.settings.setValue("ffmpeg_args", self.ffmpeg_input.text())
         self.settings.setValue("ffmpeg_mode", self.ffmpeg_mode.currentText())
-        
+
         # Cookie settings
         self.settings.setValue("cookie_browser", self.browser_combo.currentText())
         self.settings.setValue("cookie_profile", self.profile_input.text())
@@ -560,11 +734,17 @@ class MainWindow(QMainWindow):
         self.settings.setValue("cookie_container", self.container_input.text())
         self.settings.setValue("cookie_file", self.cookie_file_input.text())
 
-    # --------------- UI helpers ---------------
     def _apply_template_preset(self) -> None:
         preset_text = self.template_presets.currentText()
         current = self.template_line.text().strip()
-        if current in [self.template_presets.itemText(i) for i in range(self.template_presets.count())] or not current:
+        if (
+            current
+            in [
+                self.template_presets.itemText(i)
+                for i in range(self.template_presets.count())
+            ]
+            or not current
+        ):
             self.template_line.setText(preset_text)
         self._save_settings()
 
@@ -573,16 +753,47 @@ class MainWindow(QMainWindow):
         if self.mp3_btn.isChecked():
             self.quality_combo.addItems(["320k", "256k", "192k", "128k"])
         else:
-            self.quality_combo.addItems(["Best", "2160p", "1440p", "1080p", "720p", "480p", "360p"])
+            self.quality_combo.addItems(
+                ["Best", "2160p", "1440p", "1080p", "720p", "480p", "360p"]
+            )
         self._save_settings()
 
     def _choose_directory(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Select Download Directory", self.dir_input.text())
+        path = QFileDialog.getExistingDirectory(
+            self, "Select Download Directory", self.dir_input.text()
+        )
         if path:
             self.dir_input.setText(os.path.normpath(path))
 
     def _open_folder(self) -> None:
         open_in_file_manager(self.dir_input.text().strip())
+
+    def _clean_url_queue(self) -> None:
+        analysis = analyze_url_queue(self.url_input.toPlainText())
+        if not analysis.has_cleanup_items:
+            self.status_label.setText("Queue is already clean.")
+            return
+
+        self.url_input.setPlainText(analysis.cleaned_text)
+        removed: list[str] = []
+        if analysis.duplicate_count:
+            noun = "duplicate" if analysis.duplicate_count == 1 else "duplicates"
+            removed.append(f"{analysis.duplicate_count} {noun}")
+        invalid_count = len(analysis.invalid_entries)
+        if invalid_count:
+            noun = "invalid entry" if invalid_count == 1 else "invalid entries"
+            removed.append(f"{invalid_count} {noun}")
+        if analysis.comment_count:
+            noun = "comment line" if analysis.comment_count == 1 else "comment lines"
+            removed.append(f"{analysis.comment_count} {noun}")
+
+        kept_noun = "link" if len(analysis.urls) == 1 else "links"
+        message = (
+            f"Queue cleaned. Kept {len(analysis.urls)} unique {kept_noun}. "
+            f"Removed {', '.join(removed)}."
+        )
+        self.status_label.setText(message)
+        self.append_log(message)
 
     def _clear_urls(self) -> None:
         self.url_input.clear()
@@ -590,9 +801,54 @@ class MainWindow(QMainWindow):
         self.append_log("URL queue cleared")
 
     def _update_queue_summary(self) -> None:
-        count = len(self._collect_urls())
+        analysis = analyze_url_queue(self.url_input.toPlainText())
+        count = len(analysis.urls)
         noun = "link" if count == 1 else "links"
-        self.queue_label.setText(f"Queue: {count} {noun}")
+        summary_parts = [f"Queue: {count} {noun}"]
+        tooltip_parts = [f"{count} unique download {noun} ready."]
+
+        if analysis.duplicate_count:
+            duplicate_noun = (
+                "duplicate" if analysis.duplicate_count == 1 else "duplicates"
+            )
+            summary_parts.append(f"{analysis.duplicate_count} {duplicate_noun}")
+            tooltip_parts.append("Duplicate links are skipped when downloading.")
+
+        if analysis.invalid_entries:
+            invalid_count = len(analysis.invalid_entries)
+            summary_parts.append(f"{invalid_count} invalid")
+            preview = ", ".join(
+                f"{entry.line_number} ({entry.reason})"
+                for entry in analysis.invalid_entries[:3]
+            )
+            if invalid_count > 3:
+                preview += ", …"
+            tooltip_parts.append(
+                f"Invalid lines: {preview}. Use Clean Queue to remove them."
+            )
+
+        if analysis.comment_count:
+            ignored_noun = "line" if analysis.comment_count == 1 else "lines"
+            summary_parts.append(f"{analysis.comment_count} ignored")
+            tooltip_parts.append(
+                f"{analysis.comment_count} comment {ignored_noun} will be ignored."
+            )
+
+        self.queue_label.setText(" · ".join(summary_parts))
+        self.queue_label.setToolTip("\n".join(tooltip_parts))
+        if analysis.invalid_entries:
+            state = "warning"
+        elif analysis.duplicate_count or analysis.comment_count:
+            state = "notice"
+        else:
+            state = "ready"
+        if self.queue_label.property("state") != state:
+            self.queue_label.setProperty("state", state)
+            self.queue_label.style().unpolish(self.queue_label)
+            self.queue_label.style().polish(self.queue_label)
+        self.clean_urls_button.setEnabled(
+            analysis.has_cleanup_items and self.url_input.isEnabled()
+        )
 
     def _tool_origin(self, path: str) -> str:
         if not path or path == "Not found":
@@ -602,8 +858,8 @@ class MainWindow(QMainWindow):
             normalized = os.path.abspath(path)
             if os.path.commonpath([root, normalized]) == root:
                 return "bundled"
-        except Exception:
-            pass
+        except (OSError, ValueError):
+            return "system"
         return "system"
 
     def _refresh_dependency_status(self) -> None:
@@ -640,32 +896,38 @@ class MainWindow(QMainWindow):
     def _choose_cookie_file(self) -> None:
         """Open file dialog to select a cookie file."""
         path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select Cookie File",
-            "",
-            "Text Files (*.txt);;All Files (*)"
+            self, "Select Cookie File", "", "Text Files (*.txt);;All Files (*)"
         )
         if path:
             self.cookie_file_input.setText(os.path.normpath(path))
 
-    # Supported browsers by yt-dlp for cookie extraction
-    SUPPORTED_BROWSERS = {"brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi"}
+    SUPPORTED_BROWSERS = {
+        "brave",
+        "chrome",
+        "chromium",
+        "edge",
+        "firefox",
+        "opera",
+        "safari",
+        "vivaldi",
+    }
 
     def _get_cookies_from_browser_tuple(self):
         """Build the cookies_from_browser tuple for yt-dlp."""
         browser = self.browser_combo.currentText()
         if browser == "None":
             return None
-        
-        # Validate browser is supported by yt-dlp
+
         if browser.lower() not in self.SUPPORTED_BROWSERS:
-            self.append_log(f"Warning: Browser '{browser}' is not supported by yt-dlp. Use Cookie File instead.")
+            self.append_log(
+                f"Warning: Browser '{browser}' is not supported by yt-dlp. Use Cookie File instead."
+            )
             return None
-        
+
         profile = self.profile_input.text().strip() or None
         keyring = self.keyring_input.text().strip() or None
         container = self.container_input.text().strip() or None
-        
+
         return (browser, profile, keyring, container)
 
     def _show_cookie_help(self) -> None:
@@ -674,15 +936,15 @@ class MainWindow(QMainWindow):
         dialog.setObjectName("HelpDialog")
         dialog.setWindowTitle("Cookie Fetching Help")
         dialog.setMinimumSize(550, 450)
-        
+
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
-        
+
         title = QLabel("<h2>🍪 Cookie Fetching Guide</h2>", dialog)
         title.setStyleSheet("color: #0a84ff; font-size: 16px;")
         layout.addWidget(title)
-        
+
         help_text = QTextBrowser(dialog)
         help_text.setOpenExternalLinks(True)
         help_text.setHtml("""
@@ -760,16 +1022,16 @@ class MainWindow(QMainWindow):
         </p>
         """)
         layout.addWidget(help_text, 1)
-        
+
         close_btn = QPushButton("Close", dialog)
         close_btn.clicked.connect(dialog.accept)
         close_btn.setFixedWidth(100)
-        
+
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
         btn_layout.addWidget(close_btn)
         layout.addLayout(btn_layout)
-        
+
         dialog.exec()
 
     def _show_history_dialog(self) -> None:
@@ -777,11 +1039,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.Accepted:
             retry_urls = dialog.get_retry_urls()
             if retry_urls:
-                current = self.url_input.toPlainText().strip()
-                joined = "\\n".join(retry_urls)
-                self.url_input.setPlainText((current + "\\n" + joined).strip() if current else joined)
-                self.append_log(f"Added {len(retry_urls)} URL(s) from history to download queue.")
-                self._update_queue_summary()
+                self._add_urls_to_queue(retry_urls, "download history")
 
     def append_log(self, message: str) -> None:
         self.log_output.appendPlainText(message)
@@ -802,6 +1060,11 @@ class MainWindow(QMainWindow):
         self.restrict_checkbox.setEnabled(enabled)
         self.async_checkbox.setEnabled(enabled)
         self.aria2c_checkbox.setEnabled(enabled)
+        self.import_urls_button.setEnabled(enabled)
+        self.clean_urls_button.setEnabled(
+            enabled
+            and analyze_url_queue(self.url_input.toPlainText()).has_cleanup_items
+        )
         self.clear_urls_button.setEnabled(enabled)
         self.history_button.setEnabled(True)
         self.check_network_button.setEnabled(enabled)
@@ -815,6 +1078,7 @@ class MainWindow(QMainWindow):
         self.network_label.setStyleSheet("")
 
         from core.network import check_internet_connection
+
         is_online = check_internet_connection()
         ytdlp_ver = self._yt_dlp_version or "unknown"
 
@@ -825,7 +1089,9 @@ class MainWindow(QMainWindow):
         else:
             self.network_label.setText(f"Network: Offline | yt-dlp: {ytdlp_ver}")
             self.network_label.setStyleSheet("color: #f44336;")
-            self.append_log(f"Network status: Offline | yt-dlp: {ytdlp_ver} - downloads may fail")
+            self.append_log(
+                f"Network status: Offline | yt-dlp: {ytdlp_ver} - downloads may fail"
+            )
 
     def _toggle_pause(self) -> None:
         worker = self._worker or self._async_worker
@@ -843,16 +1109,24 @@ class MainWindow(QMainWindow):
             self.pause_button.setToolTip("Resume the paused download")
             self.append_log("Download paused")
 
-    # --------------- Validation ---------------
     def _collect_urls(self) -> List[str]:
-        text = self.url_input.toPlainText()
-        lines = [ln.strip() for ln in text.splitlines()]
-        urls = [ln for ln in lines if ln]
-        return urls
+        analysis = analyze_url_queue(self.url_input.toPlainText())
+        return list(analysis.urls)
 
     def _validate_inputs(self) -> Optional[str]:
-        urls = self._collect_urls()
-        if not urls:
+        analysis = analyze_url_queue(self.url_input.toPlainText())
+        if analysis.invalid_entries:
+            first = analysis.invalid_entries[0]
+            remaining = len(analysis.invalid_entries) - 1
+            detail = f"Line {first.line_number} {first.reason}."
+            if remaining:
+                noun = "entry" if remaining == 1 else "entries"
+                detail += f" {remaining} more invalid {noun}."
+            return (
+                f"{detail}\n"
+                "Replace invalid entries with full HTTP(S) links, or use Clean Queue to remove them."
+            )
+        if not analysis.urls:
             return "Please enter at least one URL (one per line)."
         directory = self.dir_input.text().strip()
         if not directory:
@@ -866,10 +1140,9 @@ class MainWindow(QMainWindow):
         try:
             os.makedirs(directory, exist_ok=True)
         except Exception as e:
-            return f"Cannot create directory:\\n{directory}\\n{e}"
+            return f"Cannot create directory:\n{directory}\n{e}"
         return None
 
-    # --------------- Download lifecycle ---------------
     def _start_downloads(self) -> None:
         error = self._validate_inputs()
         if error:
@@ -877,7 +1150,8 @@ class MainWindow(QMainWindow):
             self.status_label.setText(error)
             return
 
-        urls = self._collect_urls()
+        queue_analysis = analyze_url_queue(self.url_input.toPlainText())
+        urls = list(queue_analysis.urls)
         self._downloading_total = len(urls)
         self._downloading_started = 0
         self._downloading_completed = 0
@@ -913,21 +1187,36 @@ class MainWindow(QMainWindow):
         self._set_controls_enabled(False)
         self.progress_bar.setValue(0)
         self.status_label.setText("Starting download...")
-        self.append_log(f"System: yt-dlp {self._yt_dlp_version}, ffmpeg: {self._ffmpeg_path}")
+        self.append_log(
+            f"System: yt-dlp {self._yt_dlp_version}, ffmpeg: {self._ffmpeg_path}"
+        )
         self.append_log(f"aria2c: {self._aria2c_path}")
         self.append_log(f"Queue size: {len(urls)}")
-        self.append_log(f"Format: {'MP3' if opts.is_mp3 else 'MP4'} | Quality: {opts.quality}")
+        if queue_analysis.duplicate_count:
+            noun = "duplicate" if queue_analysis.duplicate_count == 1 else "duplicates"
+            self.append_log(f"Queue: skipped {queue_analysis.duplicate_count} {noun}.")
+        self.append_log(
+            f"Format: {'MP3' if opts.is_mp3 else 'MP4'} | Quality: {opts.quality}"
+        )
         self.append_log(f"Output dir: {opts.directory}")
         self.append_log(f"Template: {opts.outtmpl_template}.%(ext)s")
-        self.append_log(f"Playlist: {'Yes' if opts.download_playlist else 'No'} | Restrict filenames: {'Yes' if opts.restrict_filenames else 'No'}")
-        self.append_log(f"Async mode: {'Yes' if use_async else 'No'} | Aria2c: {'Yes' if use_aria2c else 'No'}")
+        self.append_log(
+            f"Playlist: {'Yes' if opts.download_playlist else 'No'} | Restrict filenames: {'Yes' if opts.restrict_filenames else 'No'}"
+        )
+        self.append_log(
+            f"Async mode: {'Yes' if use_async else 'No'} | Aria2c: {'Yes' if use_aria2c else 'No'}"
+        )
         if not self._ffmpeg_available:
-            self.append_log("Warning: ffmpeg not found on PATH. Audio extraction and metadata embedding may fail.")
+            self.append_log(
+                "Warning: ffmpeg not found on PATH. Audio extraction and metadata embedding may fail."
+            )
 
         if use_async:
             # Use async download manager
             self._worker_thread = QThread(self)
-            self._async_worker = AsyncVideoDownloadWorker(urls, opts, history=self._history, max_concurrent=3)
+            self._async_worker = AsyncVideoDownloadWorker(
+                urls, opts, history=self._history, max_concurrent=3
+            )
             self._async_worker.moveToThread(self._worker_thread)
 
             self._worker_thread.started.connect(self._async_worker.run)
@@ -990,20 +1279,24 @@ class MainWindow(QMainWindow):
     def _on_item_started(self, url: str) -> None:
         self._downloading_started += 1
         self._downloading_active += 1
-        self.append_log(f"Starting {self._downloading_started}/{self._downloading_total}: {url}")
+        self.append_log(
+            f"Starting {self._downloading_started}/{self._downloading_total}: {url}"
+        )
 
     def _on_item_finished(self, url: str, success: bool, info: str) -> None:
         self._downloading_active = max(0, self._downloading_active - 1)
         self._downloading_completed += 1
         if success:
-            self.append_log(f"SUCCESS: {url}\\nSaved to: {info}")
+            self.append_log(f"SUCCESS: {url}\nSaved to: {info}")
         else:
-            self.append_log(f"FAILED: {url}\\nReason: {info}")
+            self.append_log(f"FAILED: {url}\nReason: {info}")
 
     def _on_all_finished(self, success_count: int, fail_count: int) -> None:
         self.append_log(f"All done. Success: {success_count}, Failed: {fail_count}")
         if fail_count > 0:
-            self.status_label.setText(f"Completed with errors. Success: {success_count}, Failed: {fail_count}")
+            self.status_label.setText(
+                f"Completed with errors. Success: {success_count}, Failed: {fail_count}"
+            )
         else:
             self.status_label.setText(f"Completed successfully. Items: {success_count}")
 
@@ -1019,36 +1312,55 @@ class MainWindow(QMainWindow):
         if self._worker:
             try:
                 self._worker.deleteLater()
-            except Exception:
-                pass
+            except RuntimeError as error:
+                logger.debug(
+                    "Synchronous worker was already deleted: %s", error, exc_info=True
+                )
             self._worker = None
         if self._async_worker:
             try:
                 self._async_worker.deleteLater()
-            except Exception:
-                pass
+            except RuntimeError as error:
+                logger.debug(
+                    "Asynchronous worker was already deleted: %s", error, exc_info=True
+                )
             self._async_worker = None
         if self._worker_thread:
             try:
                 self._worker_thread.deleteLater()
-            except Exception:
-                pass
+            except RuntimeError as error:
+                logger.debug(
+                    "Worker thread was already deleted: %s", error, exc_info=True
+                )
             self._worker_thread = None
 
-    # --------------- FFmpeg warning ---------------
     def _warn_ffmpeg(self) -> None:
-        self.status_label.setText("ffmpeg not found. Some formats may not process. Consider installing ffmpeg.")
-        self.append_log("ffmpeg not found on PATH. Audio extraction (MP3) and metadata embedding require ffmpeg.")
+        self.status_label.setText(
+            "ffmpeg not found. Some formats may not process. Consider installing ffmpeg."
+        )
+        self.append_log(
+            "ffmpeg not found on PATH. Audio extraction (MP3) and metadata embedding require ffmpeg."
+        )
 
-    # --------------- Window close / cleanup ---------------
     def closeEvent(self, event) -> None:
-        try:
-            worker = self._worker or self._async_worker
-            if worker:
+        worker = self._worker or self._async_worker
+        if worker:
+            try:
                 worker.cancel()
-            if self._worker_thread and self._worker_thread.isRunning():
+            except RuntimeError as error:
+                logger.warning(
+                    "Could not cancel the active worker during shutdown: %s",
+                    error,
+                    exc_info=True,
+                )
+        if self._worker_thread and self._worker_thread.isRunning():
+            try:
                 self._worker_thread.quit()
                 self._worker_thread.wait(5000)
-        except Exception:
-            pass
+            except RuntimeError as error:
+                logger.warning(
+                    "Could not stop the worker thread during shutdown: %s",
+                    error,
+                    exc_info=True,
+                )
         super().closeEvent(event)

@@ -10,13 +10,19 @@ import subprocess
 import sys
 from typing import List
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 AUTHOR = "Master0fFate"
-DESCRIPTION = "YTDLE Media Downloader - Modern GUI/CLI downloader built with Python and PySide6"
+DESCRIPTION = (
+    "YTDLE Media Downloader - Modern GUI/CLI downloader built with Python and PySide6"
+)
 APP_NAME = "YTDLE"
 ROOT_DIR = Path(__file__).resolve().parent
 VERSION_FILE = ROOT_DIR / "version_info.txt"
 ENTRY_POINT = ROOT_DIR / "main.py"
+ICON_FILE = ROOT_DIR / "icon.ico"
+FFMPEG_FILE = ROOT_DIR / "ffmpeg.exe"
+ARIA2_FILE = ROOT_DIR / "aria2c.exe"
+THIRD_PARTY_NOTICES = ROOT_DIR / "THIRD_PARTY_NOTICES.md"
 
 
 def _python_file_version(version: str) -> str:
@@ -46,53 +52,73 @@ def _clean_build_artifacts() -> None:
 def build_exe():
     """Build the executable with PyInstaller."""
 
+    required_assets = (ICON_FILE, FFMPEG_FILE, ARIA2_FILE, THIRD_PARTY_NOTICES)
+    missing_assets = [path.name for path in required_assets if not path.is_file()]
+    if missing_assets:
+        print(
+            f"Release build aborted; missing required assets: {', '.join(missing_assets)}"
+        )
+        return False
+
     _clean_build_artifacts()
 
     cmd = _get_pyinstaller_command() + [
         "--console",
         "--onefile",
-        "--name", APP_NAME,
+        "--name",
+        APP_NAME,
         "--clean",
         "--noupx",
-        "--collect-all", "yt_dlp",
+        "--collect-all",
+        "yt_dlp",
         # Version info
-        "--version-file", str(VERSION_FILE),
+        "--version-file",
+        str(VERSION_FILE),
         # Hidden imports for new modules
-        "--hidden-import", "core.async_manager",
-        "--hidden-import", "core.database",
-        "--hidden-import", "core.downloader",
-        "--hidden-import", "core.config",
-        "--hidden-import", "core.history",
-        "--hidden-import", "core.errors",
-        "--hidden-import", "core.network",
-        "--hidden-import", "core.utils",
-        "--hidden-import", "core.dependencies",
-        "--hidden-import", "core.logger",
-        "--hidden-import", "ui.main_window",
-        "--hidden-import", "ui.styles",
-        "--hidden-import", "ui.components.title_bar",
-        "--hidden-import", "ui.components.history_dialog",
-        "--log-level", "WARN",
-        str(ENTRY_POINT)
+        "--hidden-import",
+        "core.async_manager",
+        "--hidden-import",
+        "core.database",
+        "--hidden-import",
+        "core.downloader",
+        "--hidden-import",
+        "core.config",
+        "--hidden-import",
+        "core.history",
+        "--hidden-import",
+        "core.errors",
+        "--hidden-import",
+        "core.network",
+        "--hidden-import",
+        "core.utils",
+        "--hidden-import",
+        "core.dependencies",
+        "--hidden-import",
+        "core.logger",
+        "--hidden-import",
+        "core.yt_dlp_options",
+        "--hidden-import",
+        "ui.main_window",
+        "--hidden-import",
+        "ui.styles",
+        "--hidden-import",
+        "ui.url_queue",
+        "--hidden-import",
+        "ui.components.title_bar",
+        "--hidden-import",
+        "ui.components.history_dialog",
+        "--icon",
+        str(ICON_FILE),
+        "--add-binary",
+        f"{FFMPEG_FILE};.",
+        "--add-binary",
+        f"{ARIA2_FILE};.",
+        "--add-data",
+        f"{THIRD_PARTY_NOTICES};.",
+        "--log-level",
+        "WARN",
+        str(ENTRY_POINT),
     ]
-
-    icon_path = ROOT_DIR / "icon.ico"
-    if icon_path.exists():
-        cmd.extend(["--icon", str(icon_path)])
-    else:
-        print("Warning: icon.ico not found, building without icon")
-
-    ffmpeg_path = ROOT_DIR / "ffmpeg.exe"
-    if ffmpeg_path.exists():
-        cmd.extend(["--add-binary", f"{ffmpeg_path};."])
-    else:
-        print("Warning: ffmpeg.exe not found, building without bundled ffmpeg")
-
-    aria2c_path = ROOT_DIR / "aria2c.exe"
-    if aria2c_path.exists():
-        cmd.extend(["--add-binary", f"{aria2c_path};."])
-    else:
-        print("Warning: aria2c.exe not found, building without bundled aria2c")
 
     print("Building YTDLE executable...")
     print(f"Version: {VERSION}")
@@ -108,10 +134,10 @@ def build_exe():
     result = subprocess.run(cmd, cwd=ROOT_DIR, capture_output=False)
 
     if result.returncode == 0:
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("Build successful!")
         print(f"Executable: {ROOT_DIR / 'dist' / f'{APP_NAME}.exe'}")
-        print("="*60)
+        print("=" * 60)
         return True
     else:
         print("\nBuild failed!")
@@ -121,7 +147,7 @@ def build_exe():
 def create_version_info():
     """Create version info file for Windows executable metadata."""
     file_version = _python_file_version(VERSION)
-    version_info = f'''VSVersionInfo(
+    version_info = f"""VSVersionInfo(
   ffi=FixedFileInfo(
         filevers=({file_version}),
         prodvers=({file_version}),
@@ -148,7 +174,7 @@ def create_version_info():
       ]),
     VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
   ]
-)'''
+)"""
 
     with open(VERSION_FILE, "w", encoding="utf-8") as f:
         f.write(version_info)

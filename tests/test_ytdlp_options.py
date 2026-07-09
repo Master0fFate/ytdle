@@ -1,6 +1,7 @@
 from core.config import DownloadOptions
 import core.async_manager as async_manager
 import core.downloader as downloader
+import core.yt_dlp_options as yt_dlp_options
 
 
 def _options(use_aria2c: bool = False) -> DownloadOptions:
@@ -17,10 +18,16 @@ def _options(use_aria2c: bool = False) -> DownloadOptions:
 
 
 def test_sync_options_include_resolved_ffmpeg_and_aria2c(monkeypatch):
-    monkeypatch.setattr(downloader, "get_ffmpeg_path", lambda: "C:/Tools/ffmpeg.exe")
-    monkeypatch.setattr(downloader, "get_aria2c_path", lambda: "C:/Tools/aria2c.exe")
+    monkeypatch.setattr(
+        yt_dlp_options, "get_ffmpeg_path", lambda: "C:/Tools/ffmpeg.exe"
+    )
+    monkeypatch.setattr(
+        yt_dlp_options, "get_aria2c_path", lambda: "C:/Tools/aria2c.exe"
+    )
 
-    options = downloader.build_yt_dlp_options(_options(use_aria2c=True), lambda _data: None)
+    options = downloader.build_yt_dlp_options(
+        _options(use_aria2c=True), lambda _data: None
+    )
 
     assert options["ffmpeg_location"] == "C:/Tools/ffmpeg.exe"
     assert options["external_downloader"] == "C:/Tools/aria2c.exe"
@@ -28,10 +35,16 @@ def test_sync_options_include_resolved_ffmpeg_and_aria2c(monkeypatch):
 
 
 def test_async_options_include_resolved_ffmpeg_and_aria2c(monkeypatch):
-    monkeypatch.setattr(async_manager, "get_ffmpeg_path", lambda: "C:/Tools/ffmpeg.exe")
-    monkeypatch.setattr(async_manager, "get_aria2c_path", lambda: "C:/Tools/aria2c.exe")
+    monkeypatch.setattr(
+        yt_dlp_options, "get_ffmpeg_path", lambda: "C:/Tools/ffmpeg.exe"
+    )
+    monkeypatch.setattr(
+        yt_dlp_options, "get_aria2c_path", lambda: "C:/Tools/aria2c.exe"
+    )
 
-    options = async_manager.build_yt_dlp_options_async(_options(use_aria2c=True), lambda _data: None)
+    options = async_manager.build_yt_dlp_options_async(
+        _options(use_aria2c=True), lambda _data: None
+    )
 
     assert options["ffmpeg_location"] == "C:/Tools/ffmpeg.exe"
     assert options["external_downloader"] == "C:/Tools/aria2c.exe"
@@ -39,9 +52,20 @@ def test_async_options_include_resolved_ffmpeg_and_aria2c(monkeypatch):
 
 
 def test_aria2c_is_not_enabled_unless_requested(monkeypatch):
-    monkeypatch.setattr(downloader, "get_ffmpeg_path", lambda: None)
-    monkeypatch.setattr(downloader, "get_aria2c_path", lambda: "C:/Tools/aria2c.exe")
+    monkeypatch.setattr(yt_dlp_options, "get_ffmpeg_path", lambda: None)
+    monkeypatch.setattr(
+        yt_dlp_options, "get_aria2c_path", lambda: "C:/Tools/aria2c.exe"
+    )
 
-    options = downloader.build_yt_dlp_options(_options(use_aria2c=False), lambda _data: None)
+    options = downloader.build_yt_dlp_options(
+        _options(use_aria2c=False), lambda _data: None
+    )
 
     assert "external_downloader" not in options
+
+
+def test_both_engines_export_the_shared_builder():
+    assert downloader.build_yt_dlp_options is yt_dlp_options.build_yt_dlp_options
+    assert (
+        async_manager.build_yt_dlp_options_async is yt_dlp_options.build_yt_dlp_options
+    )

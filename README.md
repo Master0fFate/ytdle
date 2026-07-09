@@ -13,6 +13,7 @@ YTDLE is a modern, cross-platform media downloader built with Python and PySide6
 - **Toolchain Readiness**: GUI surfaces detected FFmpeg, aria2c, and yt-dlp status before a download starts.
 - **Custom FFmpeg Args**: Pass custom flags directly to FFmpeg (via GUI or CLI).
 - **Batch Processing**: Download multiple URLs concurrently with a queue system.
+- **Smart URL Queue**: Import UTF-8 link lists, detect malformed entries, and skip duplicate URLs before downloading.
 - **Playlist Support**: Option to download entire playlists or channels.
 - **Smart Naming**: Customizable output filename templates (e.g., Uploader - Title).
 - **Robust Error Handling**: Automatic retries and fallback logic for different formats.
@@ -60,6 +61,7 @@ Run `YTDLE.exe` or `python main.py` to launch the modern dark-themed GUI.
 **New Options:**
 - **Async Mode**: Enable high-performance asyncio download engine (default: enabled)
 - **Use Aria2c**: Enable multi-connection downloads for faster speeds (requires aria2c binary)
+- **Queue Tools**: `Import List` accepts one HTTP(S) link per line; `Clean Queue` removes invalid, duplicate, and `#` comment lines.
 - **Keyboard Shortcuts**: `Ctrl+Enter` starts downloads, `Ctrl+L` focuses the URL queue, and `Esc` requests cancellation.
 
 ### Command Line Interface (CLI)
@@ -142,6 +144,7 @@ pyinstaller --console --onefile --name "YTDLE" --clean --collect-all yt_dlp --ad
 
 - `core/`: Backend logic, configuration, and downloader engine.
   - `async_manager.py`: Asyncio-based download manager for high-performance concurrent downloads.
+  - `yt_dlp_options.py`: Shared yt-dlp format, cookie, FFmpeg, and aria2c option policy for both engines.
   - `database.py`: SQLite database manager for persistent history storage.
   - `downloader.py`: Legacy threading-based download manager (still supported).
   - `history.py`: Download history tracking with SQLite backend and JSON fallback.
@@ -156,6 +159,8 @@ pyinstaller --console --onefile --name "YTDLE" --clean --collect-all yt_dlp --ad
 - `requirements.txt`: Production dependencies.
 - `requirements-dev.txt`: Development dependencies (testing, linting).
 - `BINARY_PROVENANCE.md`: Trusted binary source and verification notes.
+- `THIRD_PARTY_NOTICES.md`: Licenses and source links for bundled FFmpeg and aria2.
+- `CHANGELOG.md`: Versioned release notes.
 - `PRODUCT.md`: Product/design context for future UI work.
 
 ## Architecture

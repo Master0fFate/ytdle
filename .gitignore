@@ -55,9 +55,10 @@ ytdle.log.*
 *.db-wal
 *.db-shm
 
-# Binary files (user provides these)
+# Local and release binaries (never commit)
 ffmpeg.exe
 aria2c.exe
+*.exe
 *.dll
 *.pyd
 
@@ -72,6 +73,10 @@ version_info.txt
 *.msi
 *.zip
 *.7z
+*.sha256
+*.tmp
+*.temp
+*.bak
 
 # Downloaded media accidentally created in the repo root
 *.mp3
@@ -84,3 +89,4 @@ version_info.txt
 # OS
 .DS_Store
 Thumbs.db
+Desktop.ini
