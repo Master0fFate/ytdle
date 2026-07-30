@@ -1,36 +1,41 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QToolButton
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolButton, QWidget
+
 
 class CustomTitleBar(QWidget):
+    """Minimal frameless-window title bar with native drag behavior."""
+
     def __init__(self, parent):
         super().__init__(parent)
         self.setObjectName("TitleBar")
-        self.setFixedHeight(32)
-        
+        self.setFixedHeight(36)
         self.parent = parent
         self._start_pos = None
         self._is_dragging = False
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 0, 5, 0)
-        layout.setSpacing(5)
+        layout.setContentsMargins(14, 0, 6, 0)
+        layout.setSpacing(4)
 
         self.title_label = QLabel("YTDLE Media Downloader", self)
+        self.title_label.setObjectName("WindowTitle")
+        self.title_label.setAccessibleName("YTDLE Media Downloader")
         layout.addWidget(self.title_label)
-        
         layout.addStretch(1)
 
         self.min_btn = QToolButton(self)
         self.min_btn.setObjectName("MinimizeButton")
-        self.min_btn.setText("_")
+        self.min_btn.setText("—")
         self.min_btn.setToolTip("Minimize")
+        self.min_btn.setAccessibleName("Minimize window")
         self.min_btn.clicked.connect(self.parent.showMinimized)
         layout.addWidget(self.min_btn)
 
         self.close_btn = QToolButton(self)
         self.close_btn.setObjectName("CloseButton")
-        self.close_btn.setText("X")
+        self.close_btn.setText("×")
         self.close_btn.setToolTip("Close")
+        self.close_btn.setAccessibleName("Close window")
         self.close_btn.clicked.connect(self.parent.close)
         layout.addWidget(self.close_btn)
 

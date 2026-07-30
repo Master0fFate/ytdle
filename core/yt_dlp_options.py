@@ -5,7 +5,12 @@ from collections.abc import Callable
 from typing import Any
 
 from core.config import DownloadOptions
-from core.utils import get_aria2c_path, get_ffmpeg_path, sanitize_template
+from core.utils import (
+    get_aria2c_path,
+    get_ffmpeg_path,
+    get_tool_path,
+    sanitize_template,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +25,19 @@ def _parse_ffmpeg_args(opts: DownloadOptions) -> list[str]:
         except ValueError as exc:
             logger.warning("Failed to parse ffmpeg arguments %r: %s", value, exc)
     return parsed
+
+
+def _javascript_runtime_options() -> dict[str, dict[str, str]]:
+    """Enable the first locally installed runtime supported by yt-dlp."""
+    executables = (
+        ("deno", "deno.exe" if os.name == "nt" else "deno"),
+        ("node", "node.exe" if os.name == "nt" else "node"),
+        ("bun", "bun.exe" if os.name == "nt" else "bun"),
+    )
+    for runtime, executable in executables:
+        if path := get_tool_path(executable):
+            return {runtime: {"path": path}}
+    return {}
 
 
 def _video_format(quality: str, attempt: int) -> str:
@@ -67,6 +85,9 @@ def build_yt_dlp_options(
     ffmpeg_path = get_ffmpeg_path()
     if ffmpeg_path:
         options["ffmpeg_location"] = ffmpeg_path
+
+    if js_runtimes := _javascript_runtime_options():
+        options["js_runtimes"] = js_runtimes
 
     if opts.use_aria2c:
         connections = str(opts.max_connections)

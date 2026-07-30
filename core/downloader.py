@@ -8,7 +8,7 @@ import yt_dlp
 from PySide6.QtCore import QObject, Signal
 
 from core.config import DownloadOptions
-from core.utils import format_status, format_eta
+from core.utils import final_output_path, format_status, format_eta
 from core.history import DownloadHistory
 from core.errors import classify_error, FormatNotAvailableError, DownloadError
 from core.network import NetworkMonitor
@@ -56,6 +56,8 @@ class DownloadManager:
         self._last_item_stem: Optional[str] = None
         self._current_title: Optional[str] = None
         self._current_url: Optional[str] = None
+        self._last_emitted_progress: Optional[int] = None
+        self._last_emitted_status: Optional[str] = None
         self._skip_current_event = threading.Event()
         self._pause_event = threading.Event()
         self._network_monitor = NetworkMonitor()
@@ -84,17 +86,32 @@ class DownloadManager:
     def get_network_status(self) -> str:
         return self._network_monitor.get_status()
 
-    def _emit_progress(self, val: int) -> None:
+    def _emit_progress(self, val: int, *, force: bool = False) -> None:
+        if not force and val == self._last_emitted_progress:
+            return
         if self.on_progress:
             self.on_progress(val)
+        self._last_emitted_progress = val
 
-    def _emit_status(self, msg: str) -> None:
+    def _emit_status(self, msg: str, *, force: bool = False) -> None:
+        if not force and msg == self._last_emitted_status:
+            return
         if self.on_status:
             self.on_status(msg)
+        self._last_emitted_status = msg
 
     def _emit_log(self, msg: str) -> None:
         if self.on_log:
             self.on_log(msg)
+
+    def _record_output_path(self, path: str) -> None:
+        """Record a path reported by yt-dlp after all post-processing."""
+        if not path:
+            return
+        self._current_output_file = path
+        self._artifact_candidates.add(path)
+        self._last_item_dir = os.path.dirname(path) or self.options.directory
+        self._last_item_stem = os.path.splitext(os.path.basename(path))[0]
 
     def _progress_hook(self, d: Dict) -> None:
         if self._cancel_event.is_set():
@@ -149,7 +166,7 @@ class DownloadManager:
                         self._last_item_stem = os.path.splitext(base)[0]
 
             elif status == "finished":
-                self._emit_status("Processing downloaded file...")
+                self._emit_status("Processing downloaded file...", force=True)
                 self._emit_log("Download finished. Running post-processing...")
                 filename = d.get("filename") or self._current_output_file
                 if filename:
@@ -160,7 +177,7 @@ class DownloadManager:
                     )
                     base = os.path.basename(filename)
                     self._last_item_stem = os.path.splitext(base)[0]
-                self._emit_progress(100)
+                self._emit_progress(100, force=True)
         except Exception as e:
             self._emit_log(f"Progress hook error: {e!r}")
 
@@ -177,6 +194,9 @@ class DownloadManager:
             try:
                 ydl_opts = build_yt_dlp_options(
                     self.options, self._progress_hook, attempt
+                )
+                ydl_opts.setdefault("post_hooks", []).append(
+                    self._record_output_path
                 )
 
                 if attempt > 0:
@@ -196,6 +216,12 @@ class DownloadManager:
                         self._emit_log(
                             f"Info: {self._current_title} | Uploader: {uploader} | Duration: {dur_str}"
                         )
+                        output_path = final_output_path(info)
+                        if output_path and (
+                            not self._current_output_file
+                            or os.path.isfile(output_path)
+                        ):
+                            self._record_output_path(output_path)
                     return True, last_error
 
             except Exception as e:
@@ -295,6 +321,8 @@ class DownloadManager:
                 break
 
             self._last_logged_pct = -10
+            self._last_emitted_progress = None
+            self._last_emitted_status = None
             self._current_output_file = None
             self._artifact_candidates = set()
             self._last_item_dir = None
@@ -303,8 +331,8 @@ class DownloadManager:
             if self.on_item_started:
                 self.on_item_started(url)
 
-            self._emit_status(f"Starting {idx}/{n}")
-            self._emit_progress(0)
+            self._emit_status(f"Starting {idx}/{n}", force=True)
+            self._emit_progress(0, force=True)
             self._emit_log(f"Preparing: {url}")
 
             try:

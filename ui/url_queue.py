@@ -62,12 +62,12 @@ def analyze_url_queue(text: str) -> QueueAnalysis:
             comment_count += 1
             continue
 
+        if value in seen:
+            duplicate_count += 1
+            continue
         reason = _invalid_url_reason(value)
         if reason:
             invalid_entries.append(InvalidQueueEntry(line_number, value, reason))
-            continue
-        if value in seen:
-            duplicate_count += 1
             continue
 
         seen.add(value)
@@ -84,10 +84,14 @@ def analyze_url_queue(text: str) -> QueueAnalysis:
 def merge_url_queue(
     existing_text: str,
     incoming_texts: Iterable[str],
+    *,
+    existing_analysis: Optional[QueueAnalysis] = None,
 ) -> QueueMergeResult:
     """Append valid, new URLs while preserving the user's existing editor text."""
     incoming = analyze_url_queue("\n".join(incoming_texts))
-    existing_urls = set(analyze_url_queue(existing_text).urls)
+    if existing_analysis is None:
+        existing_analysis = analyze_url_queue(existing_text)
+    existing_urls = set(existing_analysis.urls)
     added_urls: list[str] = []
     duplicate_count = incoming.duplicate_count
 
@@ -115,7 +119,9 @@ def merge_url_queue(
 
 
 def _invalid_url_reason(value: str) -> Optional[str]:
-    if any(character.isspace() for character in value):
+    # ``value`` is non-empty and stripped, so one split field is equivalent
+    # to scanning every character with str.isspace(), but runs in C.
+    if len(value.split()) != 1:
         return "contains spaces"
 
     try:

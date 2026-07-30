@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.2.1 - 2026-07-31
+
+### Desktop experience
+
+- Refined the interface into a compact zinc-and-purple workspace with a joined format selector, animated keyboard-accessible switches, monochrome icons, and action rows that remain usable at narrower window sizes.
+- Moved toolchain, network, download, progress, and error messages into one activity console without flooding it with duplicate live updates.
+- Made history loading and filtering smoother by querying once, retaining table rows, and refreshing only the history section that changed.
+
+### Performance
+
+- Removed blocking work from application startup with lazy downloader imports, asynchronous tool-version probes, and a cancellable non-blocking network check.
+- Coalesced rapid settings writes, queue analysis, and repeated progress signals to keep typing and downloads responsive.
+- Added reusable, thread-safe SQLite connections with explicit transaction rollback and deterministic shutdown.
+
+### Reliability
+
+- Record yt-dlp's final post-processed output paths for single items and playlists in both download engines.
+- Detect an installed Deno, Node.js, or Bun runtime for yt-dlp and update the minimum yt-dlp version to `2026.7.4`.
+- Strengthened queue parsing, history migration, logging failures, and application cleanup behavior.
+- Expanded regression coverage for database concurrency, startup responsiveness, history filtering, output-path capture, progress coalescing, queue caching, and custom controls.
+
 ## 2.2.0 - 2026-07-10
 
 ### Added

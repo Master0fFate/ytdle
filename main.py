@@ -3,10 +3,8 @@ import ctypes
 import sys
 import os
 
-from core.logger import setup_logging
 from core.config import DownloadOptions
-from core.downloader import DownloadManager
-from core.utils import get_aria2c_path
+from core.logger import setup_logging
 
 
 class NullWriter:
@@ -30,11 +28,14 @@ def hide_console_window():
         hwnd = ctypes.windll.kernel32.GetConsoleWindow()
         if hwnd != 0:
             ctypes.windll.user32.ShowWindow(hwnd, 0) # 0 = SW_HIDE
-    except Exception:
-        pass
+    except (AttributeError, OSError):
+        return
 
 
 def run_cli(args) -> None:
+    from core.downloader import DownloadManager
+    from core.utils import get_aria2c_path
+
     print("YTDLE CLI Mode")
     print("-" * 30)
 
@@ -91,16 +92,16 @@ def run_cli(args) -> None:
         try:
             sys.stdout.write(msg)
             sys.stdout.flush()
-        except Exception:
-            pass
+        except (AttributeError, OSError, ValueError):
+            return
 
     def on_status(msg: str):
         if "Downloading..." in msg:
              try:
                 sys.stdout.write(f" | {msg}")
                 sys.stdout.flush()
-             except Exception:
-                pass
+             except (AttributeError, OSError, ValueError):
+                return
         else:
              print(f"\nStatus: {msg}")
 

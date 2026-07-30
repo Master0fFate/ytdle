@@ -13,8 +13,8 @@ def setup_logging(verbose: bool = False):
         file_handler = logging.FileHandler("ytdle.log", encoding="utf-8")
         file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
         handlers.append(file_handler)
-    except Exception:
-        pass
+    except OSError as error:
+        sys.stderr.write(f"Warning: could not open ytdle.log: {error}\n")
 
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))

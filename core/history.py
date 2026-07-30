@@ -251,6 +251,17 @@ class DownloadHistory:
             self._records = [r for r in self._records if r.success]
             self._save()
 
+    def close(self) -> None:
+        """Release database resources deterministically."""
+        if self._db is not None:
+            self._db.close()
+
+    def __enter__(self) -> "DownloadHistory":
+        return self
+
+    def __exit__(self, _exc_type, _exc_value, _traceback) -> None:
+        self.close()
+
     def get_record_by_url(self, url: str) -> Optional[HistoryRecord]:
         """Get a record by URL."""
         if self._use_sqlite:

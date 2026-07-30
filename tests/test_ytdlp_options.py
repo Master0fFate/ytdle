@@ -51,6 +51,27 @@ def test_async_options_include_resolved_ffmpeg_and_aria2c(monkeypatch):
     assert options["external_downloader_args"]["aria2c"][:4] == ["-x", "8", "-s", "8"]
 
 
+def test_installed_javascript_runtime_is_forwarded_to_ytdlp(monkeypatch):
+    monkeypatch.setattr(yt_dlp_options, "get_ffmpeg_path", lambda: None)
+    monkeypatch.setattr(
+        yt_dlp_options,
+        "get_tool_path",
+        lambda executable: (
+            "C:/Program Files/nodejs/node.exe"
+            if executable.lower() == "node.exe"
+            else None
+        ),
+    )
+
+    options = downloader.build_yt_dlp_options(
+        _options(use_aria2c=False), lambda _data: None
+    )
+
+    assert options["js_runtimes"] == {
+        "node": {"path": "C:/Program Files/nodejs/node.exe"}
+    }
+
+
 def test_aria2c_is_not_enabled_unless_requested(monkeypatch):
     monkeypatch.setattr(yt_dlp_options, "get_ffmpeg_path", lambda: None)
     monkeypatch.setattr(

@@ -3,7 +3,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Any, Iterable, List, Mapping, Optional
 
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
@@ -137,9 +137,11 @@ def format_status(speed_bps: Optional[float], eta: Optional[int]) -> str:
     parts: List[str] = []
     if speed_bps:
         try:
-            parts.append(f"{(float(speed_bps) / (1024 * 1024)):.1f} MB/s")
-        except Exception:
-            pass
+            speed_mib = float(speed_bps) / (1024 * 1024)
+        except (TypeError, ValueError, OverflowError):
+            speed_mib = None
+        if speed_mib is not None:
+            parts.append(f"{speed_mib:.1f} MB/s")
     if eta:
         eta_str = format_eta(eta)
         if eta_str:
@@ -147,6 +149,23 @@ def format_status(speed_bps: Optional[float], eta: Optional[int]) -> str:
     if not parts:
         return "Downloading..."
     return "Downloading... " + " | ".join(parts)
+
+
+def final_output_path(info: Mapping[str, Any]) -> Optional[str]:
+    """Return yt-dlp's post-processed output path, including playlist entries."""
+    filepath = info.get("filepath")
+    if isinstance(filepath, str) and filepath:
+        return filepath
+
+    final_path: Optional[str] = None
+    entries = info.get("entries")
+    if entries:
+        for entry in entries:
+            if isinstance(entry, Mapping):
+                entry_path = final_output_path(entry)
+                if entry_path:
+                    final_path = entry_path
+    return final_path
 
 
 def sanitize_template(template: str) -> str:

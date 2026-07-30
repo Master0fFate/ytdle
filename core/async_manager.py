@@ -18,7 +18,7 @@ import yt_dlp
 from PySide6.QtCore import QObject, Signal, QThread
 
 from core.config import DownloadOptions
-from core.utils import format_status, format_eta
+from core.utils import final_output_path, format_status, format_eta
 from core.history import DownloadHistory
 from core.errors import classify_error, FormatNotAvailableError, DownloadError
 from core.network import NetworkMonitor
@@ -39,6 +39,8 @@ class DownloadItemContext:
     last_item_stem: Optional[str] = None
     current_title: Optional[str] = None
     last_error: str = ""
+    last_emitted_progress: Optional[int] = None
+    last_emitted_status: Optional[str] = None
 
 
 class AsyncDownloadManager:
@@ -138,6 +140,39 @@ class AsyncDownloadManager:
         if self.on_log:
             self.on_log(msg)
 
+    def _record_output_path(self, ctx: DownloadItemContext, path: str) -> None:
+        """Record a path reported by yt-dlp after all post-processing."""
+        if not path:
+            return
+        ctx.current_output_file = path
+        ctx.artifact_candidates.add(path)
+        ctx.last_item_dir = os.path.dirname(path) or self.options.directory
+        ctx.last_item_stem = os.path.splitext(os.path.basename(path))[0]
+
+    def _emit_item_progress(
+        self,
+        ctx: DownloadItemContext,
+        val: int,
+        *,
+        force: bool = False,
+    ) -> None:
+        if not force and val == ctx.last_emitted_progress:
+            return
+        self._emit_progress(val)
+        ctx.last_emitted_progress = val
+
+    def _emit_item_status(
+        self,
+        ctx: DownloadItemContext,
+        msg: str,
+        *,
+        force: bool = False,
+    ) -> None:
+        if not force and msg == ctx.last_emitted_status:
+            return
+        self._emit_status(msg)
+        ctx.last_emitted_status = msg
+
     def _progress_hook(self, d: Dict) -> None:
         """Progress hook called by yt-dlp (runs in executor thread)."""
         ctx: Optional[DownloadItemContext] = getattr(
@@ -163,14 +198,14 @@ class AsyncDownloadManager:
                 pct = 0
                 if total:
                     pct = int(downloaded * 100 / total)
-                    self._emit_progress(pct)
+                    self._emit_item_progress(ctx, pct)
 
                 speed = d.get("speed")
                 eta = d.get("eta")
                 status_msg = format_status(speed, eta)
                 if self._paused:
                     status_msg = "Paused"
-                self._emit_status(status_msg)
+                self._emit_item_status(ctx, status_msg)
 
                 if total and pct >= ctx.last_logged_pct + 10:
                     ctx.last_logged_pct = pct - (pct % 10)
@@ -197,7 +232,9 @@ class AsyncDownloadManager:
                         ctx.last_item_stem = os.path.splitext(base)[0]
 
             elif status == "finished":
-                self._emit_status("Processing downloaded file...")
+                self._emit_item_status(
+                    ctx, "Processing downloaded file...", force=True
+                )
                 self._emit_log("Download finished. Running post-processing...")
                 filename = d.get("filename") or ctx.current_output_file
                 if filename:
@@ -208,7 +245,7 @@ class AsyncDownloadManager:
                     )
                     base = os.path.basename(filename)
                     ctx.last_item_stem = os.path.splitext(base)[0]
-                self._emit_progress(100)
+                self._emit_item_progress(ctx, 100, force=True)
         except Exception as e:
             self._emit_log(f"Progress hook error: {e!r}")
 
@@ -227,6 +264,9 @@ class AsyncDownloadManager:
             try:
                 ydl_opts = build_yt_dlp_options_async(
                     self.options, self._progress_hook, attempt
+                )
+                ydl_opts.setdefault("post_hooks", []).append(
+                    lambda path, current=ctx: self._record_output_path(current, path)
                 )
 
                 if attempt > 0:
@@ -279,6 +319,11 @@ class AsyncDownloadManager:
                     self._emit_log(
                         f"Info: {ctx.current_title} | Uploader: {uploader} | Duration: {dur_str}"
                     )
+                    output_path = final_output_path(info)
+                    if output_path and (
+                        not ctx.current_output_file or os.path.isfile(output_path)
+                    ):
+                        self._record_output_path(ctx, output_path)
         finally:
             self._thread_local.context = None
 
@@ -364,7 +409,7 @@ class AsyncDownloadManager:
         if self.on_item_started:
             self.on_item_started(url)
 
-        self._emit_progress(0)
+        self._emit_item_progress(ctx, 0, force=True)
         self._emit_log(f"Preparing: {url}")
 
         try:

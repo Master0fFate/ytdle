@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Iterator
 from typing import Any
 
@@ -23,8 +24,10 @@ class FakeYoutubeDL:
     responses: Iterator[dict[str, Any] | Exception]
     extract_calls: list[tuple[str, bool]]
     instance_count: int
+    post_hook_path: str | None
 
-    def __init__(self, _options: dict[str, Any]) -> None:
+    def __init__(self, options: dict[str, Any]) -> None:
+        self.options = options
         type(self).instance_count += 1
 
     def __enter__(self) -> "FakeYoutubeDL":
@@ -38,13 +41,21 @@ class FakeYoutubeDL:
         response = next(type(self).responses)
         if isinstance(response, Exception):
             raise response
+        if type(self).post_hook_path:
+            for hook in self.options.get("post_hooks", ()):
+                hook(type(self).post_hook_path)
         return response
 
     @classmethod
-    def configure(cls, *responses: dict[str, Any] | Exception) -> None:
+    def configure(
+        cls,
+        *responses: dict[str, Any] | Exception,
+        post_hook_path: str | None = None,
+    ) -> None:
         cls.responses = iter(responses)
         cls.extract_calls = []
         cls.instance_count = 0
+        cls.post_hook_path = post_hook_path
 
 
 @pytest.mark.parametrize(
@@ -82,6 +93,26 @@ def test_sync_download_extracts_once_and_keeps_title(
     assert FakeYoutubeDL.instance_count == 1
 
 
+def test_sync_records_yt_dlp_postprocessed_filepath(monkeypatch, tmp_path):
+    final_path = tmp_path / "converted.mp3"
+    FakeYoutubeDL.configure(
+        {
+            "title": "Converted audio",
+            "duration": 10,
+            "filepath": str(tmp_path / "deleted-intermediate.webm"),
+        },
+        post_hook_path=str(final_path),
+    )
+    monkeypatch.setattr(downloader.yt_dlp, "YoutubeDL", FakeYoutubeDL)
+    manager = downloader.DownloadManager([], _options(tmp_path))
+
+    success, error = manager._download_with_fallback("https://example.test/audio")
+
+    assert (success, error) == (True, "")
+    assert manager._current_output_file == str(final_path)
+    assert str(final_path) in manager._artifact_candidates
+
+
 def test_sync_format_fallback_uses_one_extraction_per_attempt(monkeypatch, tmp_path):
     FakeYoutubeDL.configure(
         RuntimeError("format not available"),
@@ -98,6 +129,32 @@ def test_sync_format_fallback_uses_one_extraction_per_attempt(monkeypatch, tmp_p
         ("https://example.test/fallback", True),
         ("https://example.test/fallback", True),
     ]
+
+
+def test_async_records_yt_dlp_postprocessed_filepath(monkeypatch, tmp_path):
+    final_path = tmp_path / "merged.mp4"
+    info = {
+        "title": "Merged video",
+        "duration": 10,
+        "filepath": str(tmp_path / "deleted-intermediate.webm"),
+    }
+    FakeYoutubeDL.configure(info, post_hook_path=str(final_path))
+    monkeypatch.setattr(async_manager.yt_dlp, "YoutubeDL", FakeYoutubeDL)
+    manager = async_manager.AsyncDownloadManager(
+        [], _options(tmp_path), max_concurrent=1
+    )
+    context = async_manager.DownloadItemContext(url="https://example.test/video")
+
+    try:
+        success, error = asyncio.run(
+            manager._download_with_fallback(context.url, context)
+        )
+    finally:
+        manager._executor.shutdown(wait=True)
+
+    assert (success, error) == (True, "")
+    assert context.current_output_file == str(final_path)
+    assert str(final_path) in context.artifact_candidates
 
 
 def test_async_download_extracts_once_and_keeps_playlist_title(monkeypatch, tmp_path):

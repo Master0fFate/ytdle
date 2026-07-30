@@ -36,6 +36,35 @@ def test_analyze_url_queue_explains_common_malformed_entries():
     ]
 
 
+def test_analyze_url_queue_handles_ipv6_credentials_unicode_and_bom():
+    analysis = analyze_url_queue(
+        "\ufeffhttps://例え.テスト/路径\n"
+        "https://[2001:db8::1]:8443/video\n"
+        "https://user:pass@example.com/private\n"
+        "https://[2001:db8::1]:8443/video\n"
+        "https://example.com:99999/video\n"
+        "https://[2001:db8::1/video\n"
+        "https://example.com/path\u2003segment\n"
+        "\ufeffhttps://example.com/not-first-bom\n"
+        "   # ignored comment\n"
+    )
+
+    assert analysis.urls == (
+        "https://例え.テスト/路径",
+        "https://[2001:db8::1]:8443/video",
+        "https://user:pass@example.com/private",
+    )
+    assert analysis.duplicate_count == 1
+    assert analysis.comment_count == 1
+    assert [entry.line_number for entry in analysis.invalid_entries] == [5, 6, 7, 8]
+    assert [entry.reason for entry in analysis.invalid_entries] == [
+        "is malformed",
+        "is malformed",
+        "contains spaces",
+        "must start with http:// or https://",
+    ]
+
+
 def test_merge_url_queue_adds_only_new_valid_links_and_preserves_editor_text():
     existing = (
         "https://example.com/one\nleave this line for the user\nhttps://example.com/one"

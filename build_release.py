@@ -10,7 +10,7 @@ import subprocess
 import sys
 from typing import List
 
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 AUTHOR = "Master0fFate"
 DESCRIPTION = (
     "YTDLE Media Downloader - Modern GUI/CLI downloader built with Python and PySide6"
@@ -107,6 +107,10 @@ def build_exe():
         "ui.components.title_bar",
         "--hidden-import",
         "ui.components.history_dialog",
+        "--hidden-import",
+        "ui.components.toggle_switch",
+        "--hidden-import",
+        "ui.icons",
         "--icon",
         str(ICON_FILE),
         "--add-binary",

@@ -8,6 +8,7 @@ instead of O(n) read/write for large history files.
 import sqlite3
 import json
 import logging
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -36,9 +37,10 @@ class HistoryRecord:
     def from_row(cls, row: sqlite3.Row) -> "HistoryRecord":
         """Create a HistoryRecord from a database row."""
         metadata = {}
-        if row["metadata"]:
+        metadata_text = row["metadata"]
+        if metadata_text and metadata_text != "{}":
             try:
-                metadata = json.loads(row["metadata"])
+                metadata = json.loads(metadata_text)
             except json.JSONDecodeError:
                 pass
 
@@ -68,19 +70,28 @@ class DatabaseManager:
     - Context manager for safe connections
     """
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None, pool_size: int = 4):
         """
         Initialize the database manager.
 
         Args:
             db_path: Path to SQLite database. Defaults to ~/.ytdle/ytdle.db
+            pool_size: Maximum number of idle connections retained for reuse.
         """
         if db_path is None:
             ytdle_dir = Path.home() / ".ytdle"
             ytdle_dir.mkdir(parents=True, exist_ok=True)
             db_path = ytdle_dir / "ytdle.db"
+        if pool_size < 1:
+            raise ValueError("pool_size must be at least 1")
 
         self.db_path = str(db_path)
+        self._pool_size = pool_size
+        self._pool_condition = threading.Condition()
+        self._connections: list[sqlite3.Connection] = []
+        self._available: list[sqlite3.Connection] = []
+        self._active_connections = 0
+        self._closed = False
         self._init_db()
 
     def _init_db(self) -> None:
@@ -128,24 +139,96 @@ class DatabaseManager:
 
             logger.info(f"Database initialized at {self.db_path}")
 
+    def _create_connection(self) -> sqlite3.Connection:
+        """Create one pool connection with connection-local durability settings."""
+        conn = sqlite3.connect(
+            self.db_path,
+            timeout=5.0,
+            check_same_thread=False,
+        )
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        return conn
+
+    def _acquire_connection(self) -> sqlite3.Connection:
+        """Exclusively check out a connection; never share one concurrently."""
+        with self._pool_condition:
+            if self._closed:
+                raise RuntimeError("DatabaseManager is closed")
+            if self._available:
+                conn = self._available.pop()
+            else:
+                conn = self._create_connection()
+                self._connections.append(conn)
+            self._active_connections += 1
+            return conn
+
+    def _release_connection(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        discard: bool = False,
+    ) -> None:
+        with self._pool_condition:
+            self._active_connections -= 1
+            if self._closed or discard or len(self._available) >= self._pool_size:
+                try:
+                    conn.close()
+                finally:
+                    self._connections.remove(conn)
+            else:
+                self._available.append(conn)
+            self._pool_condition.notify_all()
+
     @contextmanager
     def get_connection(self):
         """
-        Get a database connection with row factory.
+        Check out an exclusive pooled connection and commit before returning.
+
+        Every connection receives the same connection-local SQLite pragmas.
+        Exceptions roll back the current transaction before the connection is
+        returned to the pool.
 
         Yields:
             sqlite3.Connection: Database connection
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._acquire_connection()
+        discard = False
         try:
             yield conn
             conn.commit()
-        except Exception:
-            conn.rollback()
+        except BaseException:
+            try:
+                conn.rollback()
+            except sqlite3.Error:
+                discard = True
+                logger.exception("Failed to roll back database transaction")
             raise
         finally:
-            conn.close()
+            self._release_connection(conn, discard=discard)
+
+    def close(self) -> None:
+        """Close every pooled connection; safe to call more than once."""
+        with self._pool_condition:
+            if not self._closed:
+                self._closed = True
+                for conn in self._available:
+                    try:
+                        conn.close()
+                    finally:
+                        self._connections.remove(conn)
+                self._available.clear()
+                self._pool_condition.notify_all()
+
+            while self._active_connections:
+                self._pool_condition.wait()
+
+    def __enter__(self) -> "DatabaseManager":
+        return self
+
+    def __exit__(self, _exc_type, _exc_value, _traceback) -> None:
+        self.close()
 
     def migrate_from_json(self, json_path: Optional[str] = None) -> int:
         """
@@ -512,6 +595,10 @@ class DownloadHistory:
     def clear_failed(self) -> None:
         """Clear failed records."""
         self._db.clear_failed()
+
+    def close(self) -> None:
+        """Release database resources deterministically."""
+        self._db.close()
 
     def export_failed(self, output_path: str) -> int:
         """Export failed URLs to a file."""

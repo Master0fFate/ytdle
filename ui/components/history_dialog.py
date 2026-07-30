@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -37,18 +38,20 @@ class HistoryDialog(QDialog):
 
         header = QHBoxLayout()
         title = QLabel("Download History", self)
-        title.setStyleSheet("font-weight: bold; font-size: 12pt;")
+        title.setObjectName("DialogTitle")
         header.addWidget(title)
         header.addStretch()
 
         filter_layout = QHBoxLayout()
         filter_label = QLabel("Filter:", self)
         self.filter_input = QLineEdit(self)
+        self.filter_input.setAccessibleName("Filter download history")
         self.filter_input.setPlaceholderText("Search by title, URL, or quality...")
         self.filter_input.textChanged.connect(self._on_filter_changed)
 
         status_label = QLabel("Status:", self)
         self.status_combo = QComboBox(self)
+        self.status_combo.setAccessibleName("Filter download history by status")
         self.status_combo.addItems(["All", "Completed", "Failed"])
         self.status_combo.currentIndexChanged.connect(self._on_filter_changed)
 
@@ -122,48 +125,79 @@ class HistoryDialog(QDialog):
         table.setSortingEnabled(True)
 
     def _load_data(self):
-        self._load_completed()
-        self._load_failed()
+        records = self._history.get_all()
+        self._completed_records = [record for record in records if record.success]
+        self._failed_records = [record for record in records if not record.success]
+        self._populate_table(self.completed_table, self._completed_records)
+        self._populate_table(self.failed_table, self._failed_records)
+        has_failed = bool(self._failed_records)
+        self.export_failed_btn.setEnabled(has_failed)
+        self.retry_failed_btn.setEnabled(has_failed)
 
     def _load_completed(self):
-        records = self._history.get_completed()
-        self._populate_table(self.completed_table, records)
+        self._completed_records = self._history.get_completed()
+        self._populate_table(self.completed_table, self._completed_records)
 
     def _load_failed(self):
-        records = self._history.get_failed()
-        self._populate_table(self.failed_table, records)
-        self.export_failed_btn.setEnabled(len(records) > 0)
-        self.retry_failed_btn.setEnabled(len(records) > 0)
+        self._failed_records = self._history.get_failed()
+        self._populate_table(self.failed_table, self._failed_records)
+        has_failed = bool(self._failed_records)
+        self.export_failed_btn.setEnabled(has_failed)
+        self.retry_failed_btn.setEnabled(has_failed)
 
     def _populate_table(self, table: QTableWidget, records):
-        table.setRowCount(0)
+        sorting_enabled = table.isSortingEnabled()
+        header = table.horizontalHeader()
+        sort_section = header.sortIndicatorSection()
+        sort_order = header.sortIndicatorOrder()
+        table.setUpdatesEnabled(False)
+        table.setSortingEnabled(False)
+        try:
+            table.clearContents()
+            table.setRowCount(len(records))
+            set_item = table.setItem
 
-        for idx, record in enumerate(records):
-            table.insertRow(idx)
+            for idx, record in enumerate(records):
+                table.setRowHidden(idx, False)
+                url_item = QTableWidgetItem(record.url)
+                url_item.setToolTip(record.url)
+                url_item.setData(
+                    Qt.ItemDataRole.UserRole,
+                    (
+                        record.url.lower(),
+                        record.title.lower(),
+                        record.format.lower(),
+                        record.quality.lower(),
+                    ),
+                )
+                set_item(idx, 0, url_item)
 
-            url_item = QTableWidgetItem(record.url)
-            url_item.setToolTip(record.url)
-            table.setItem(idx, 0, url_item)
+                title_item = QTableWidgetItem(record.title)
+                title_item.setToolTip(record.title)
+                set_item(idx, 1, title_item)
 
-            title_item = QTableWidgetItem(record.title)
-            title_item.setToolTip(record.title)
-            table.setItem(idx, 1, title_item)
+                set_item(idx, 2, QTableWidgetItem(record.format))
+                set_item(idx, 3, QTableWidgetItem(record.quality))
+                set_item(idx, 4, QTableWidgetItem(self._format_date(record.timestamp)))
+                set_item(
+                    idx,
+                    5,
+                    QTableWidgetItem("Success" if record.success else "Failed"),
+                )
 
-            table.setItem(idx, 2, QTableWidgetItem(record.format))
-            table.setItem(idx, 3, QTableWidgetItem(record.quality))
-
-            date_str = self._format_date(record.timestamp)
-            table.setItem(idx, 4, QTableWidgetItem(date_str))
-
-            status_item = QTableWidgetItem("Success" if record.success else "Failed")
-            table.setItem(idx, 5, status_item)
-
-            if record.success:
-                table.setItem(idx, 6, QTableWidgetItem(record.output_path or ""))
-            else:
-                error_item = QTableWidgetItem(record.error_message)
-                error_item.setToolTip(record.error_message)
-                table.setItem(idx, 6, error_item)
+                if record.success:
+                    path_item = QTableWidgetItem(record.output_path or "")
+                    path_item.setToolTip(record.output_path or "")
+                    set_item(idx, 6, path_item)
+                else:
+                    error_item = QTableWidgetItem(record.error_message)
+                    error_item.setToolTip(record.error_message)
+                    set_item(idx, 6, error_item)
+        finally:
+            table.setSortingEnabled(sorting_enabled)
+            if sorting_enabled and sort_section >= 0:
+                table.sortItems(sort_section, sort_order)
+            table.setUpdatesEnabled(True)
 
     def _format_date(self, timestamp: str) -> str:
         try:
@@ -175,59 +209,43 @@ class HistoryDialog(QDialog):
     def _on_filter_changed(self):
         filter_text = self.filter_input.text().lower()
         status_filter = self.status_combo.currentText()
-
         current_tab = self.tab_widget.currentIndex()
 
         if current_tab == 0:
-            self._filter_table(self.completed_table, self._history.get_completed(), filter_text, "Completed" if status_filter != "All" else None)
+            self._filter_table(
+                self.completed_table,
+                self._completed_records,
+                filter_text,
+                "Completed" if status_filter != "All" else None,
+            )
         else:
-            self._filter_table(self.failed_table, self._history.get_failed(), filter_text, "Failed" if status_filter != "All" else None)
-
-    def _filter_table(self, table: QTableWidget, records, filter_text: str, status_filter: str = None):
-        table.setRowCount(0)
-
-        for idx, record in enumerate(records):
-            if status_filter:
-                is_completed = record.success
-                if status_filter == "Completed" and not is_completed:
-                    continue
-                if status_filter == "Failed" and is_completed:
-                    continue
-
-            text_match = (
-                filter_text in record.url.lower() or
-                filter_text in record.title.lower() or
-                filter_text in record.format.lower() or
-                filter_text in record.quality.lower()
+            self._filter_table(
+                self.failed_table,
+                self._failed_records,
+                filter_text,
+                "Failed" if status_filter != "All" else None,
             )
 
-            if text_match:
-                row_idx = table.rowCount()
-                table.insertRow(row_idx)
-
-                url_item = QTableWidgetItem(record.url)
-                url_item.setToolTip(record.url)
-                table.setItem(row_idx, 0, url_item)
-
-                title_item = QTableWidgetItem(record.title)
-                title_item.setToolTip(record.title)
-                table.setItem(row_idx, 1, title_item)
-
-                table.setItem(row_idx, 2, QTableWidgetItem(record.format))
-                table.setItem(row_idx, 3, QTableWidgetItem(record.quality))
-
-                date_str = self._format_date(record.timestamp)
-                table.setItem(row_idx, 4, QTableWidgetItem(date_str))
-
-                status_item = QTableWidgetItem("Success" if record.success else "Failed")
-                table.setItem(row_idx, 5, status_item)
-
-                if record.success:
-                    table.setItem(row_idx, 6, QTableWidgetItem(record.output_path or ""))
-                else:
-                    error_item = QTableWidgetItem(record.error_message)
-                    error_item.setToolTip(record.error_message)
-                    table.setItem(row_idx, 6, error_item)
+    def _filter_table(
+        self,
+        table: QTableWidget,
+        _records,
+        filter_text: str,
+        status_filter: str = None,
+    ):
+        expected_status = "Success" if status_filter == "Completed" else status_filter
+        table.setUpdatesEnabled(False)
+        try:
+            for row in range(table.rowCount()):
+                search_fields = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                text_match = any(filter_text in field for field in search_fields)
+                status_match = (
+                    expected_status is None
+                    or table.item(row, 5).text() == expected_status
+                )
+                table.setRowHidden(row, not (text_match and status_match))
+        finally:
+            table.setUpdatesEnabled(True)
 
     def _on_tab_changed(self, index: int):
         self.filter_input.clear()

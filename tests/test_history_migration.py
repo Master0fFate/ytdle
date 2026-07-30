@@ -25,7 +25,10 @@ def test_history_migrates_legacy_list_json(tmp_path: Path):
 
     history = DownloadHistory(str(history_file))
 
-    completed = history.get_completed()
-    assert len(completed) == 1
-    assert completed[0].url == "https://example.com/video"
-    assert (tmp_path / "history.json.backup").exists()
+    try:
+        completed = history.get_completed()
+        assert len(completed) == 1
+        assert completed[0].url == "https://example.com/video"
+        assert (tmp_path / "history.json.backup").exists()
+    finally:
+        history.close()

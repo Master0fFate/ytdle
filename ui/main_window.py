@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import logging
 import os
-from typing import Iterable, List, Optional
+from typing import TYPE_CHECKING, Iterable, List, Optional
 
-from PySide6.QtCore import Qt, QThread, QSettings
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtCore import QProcess, QSettings, QThread, QTimer, Qt
+from PySide6.QtGui import QKeySequence, QShortcut, QTextCursor
+from PySide6.QtNetwork import QTcpSocket
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -12,12 +15,11 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QToolButton,
-    QStyle,
     QPlainTextEdit,
     QPushButton,
     QButtonGroup,
     QComboBox,
-    QCheckBox,
+    QFrame,
     QProgressBar,
     QMessageBox,
     QFileDialog,
@@ -28,14 +30,23 @@ from PySide6.QtWidgets import (
 )
 
 from core.config import DownloadOptions
-from core.downloader import VideoDownloadWorker
-from core.async_manager import AsyncVideoDownloadWorker
-from core.dependencies import check_dependencies
-from core.utils import open_in_file_manager
+from core.dependencies import resolve_dependency_paths
 from core.history import DownloadHistory
-from ui.components.title_bar import CustomTitleBar
+from core.utils import open_in_file_manager
 from ui.components import HistoryDialog
-from ui.url_queue import QueueMergeResult, analyze_url_queue, merge_url_queue
+from ui.components.title_bar import CustomTitleBar
+from ui.components.toggle_switch import ToggleSwitch
+from ui.icons import line_icon
+from ui.url_queue import (
+    QueueAnalysis,
+    QueueMergeResult,
+    analyze_url_queue,
+    merge_url_queue,
+)
+
+if TYPE_CHECKING:
+    from core.async_manager import AsyncVideoDownloadWorker
+    from core.downloader import VideoDownloadWorker
 
 
 logger = logging.getLogger(__name__)
@@ -55,7 +66,7 @@ class MainWindow(QMainWindow):
         self._history = DownloadHistory()
         self._use_async = True  # Enable async download manager by default
 
-        deps = check_dependencies()
+        deps = resolve_dependency_paths()
         self._ffmpeg_path = deps["ffmpeg"]
         self._aria2c_path = deps["aria2c"]
         self._yt_dlp_version = deps["yt_dlp"]
@@ -68,12 +79,27 @@ class MainWindow(QMainWindow):
         self._downloading_started: int = 0
         self._downloading_completed: int = 0
         self._downloading_active: int = 0
+        self._queue_cache_text: Optional[str] = None
+        self._queue_cache_analysis: Optional[QueueAnalysis] = None
+        self._last_toolchain_console_text: Optional[str] = None
+        self._live_status_active = False
+        self._controls_enabled = True
+        self._dependency_processes: dict[str, tuple[QProcess, str]] = {}
+        self._network_socket: Optional[QTcpSocket] = None
+        self._network_timer = QTimer(self)
+        self._network_timer.setSingleShot(True)
+        self._network_timer.timeout.connect(self._on_network_timeout)
+        self._settings_save_timer = QTimer(self)
+        self._settings_save_timer.setSingleShot(True)
+        self._settings_save_timer.setInterval(250)
+        self._settings_save_timer.timeout.connect(self._save_settings_now)
 
         self.settings = QSettings("Merlin", "YTDLE_v2")
 
         self._init_ui()
         self._load_settings()
         self.setAcceptDrops(True)
+        self._start_dependency_version_probes()
 
         if not self._ffmpeg_available:
             self._warn_ffmpeg()
@@ -108,19 +134,19 @@ class MainWindow(QMainWindow):
 
         self.browse_button = QToolButton(self)
         self.browse_button.setObjectName("BrowseButton")
-        self.browse_button.setIcon(self.style().standardIcon(QStyle.SP_DirIcon))
+        self.browse_button.setIcon(line_icon("folder"))
         self.browse_button.setToolTip("Choose download directory")
+        self.browse_button.setAccessibleName("Choose download directory")
         self.browse_button.clicked.connect(self._choose_directory)
         dir_row.addWidget(self.browse_button, 0)
 
         self.open_folder_button = QToolButton(self)
         self.open_folder_button.setObjectName("OpenFolderButton")
-        self.open_folder_button.setIcon(
-            self.style().standardIcon(QStyle.SP_DialogOpenButton)
-        )
+        self.open_folder_button.setIcon(line_icon("open-folder"))
         self.open_folder_button.setToolTip(
             "Open the current download folder in your file manager"
         )
+        self.open_folder_button.setAccessibleName("Open current download folder")
         self.open_folder_button.clicked.connect(self._open_folder)
         dir_row.addWidget(self.open_folder_button, 0)
 
@@ -129,6 +155,9 @@ class MainWindow(QMainWindow):
         dependency_row = QHBoxLayout()
         self.dependency_label = QLabel("Checking tools...", self)
         self.dependency_label.setObjectName("DependencyStatus")
+        self.dependency_label.setProperty("state", "pending")
+        self.dependency_label.setAccessibleName("Toolchain status")
+        self.dependency_label.setVisible(False)
         self.dependency_label.setWordWrap(True)
         self.dependency_label.setToolTip(
             "Detected downloader toolchain and local paths"
@@ -175,7 +204,8 @@ class MainWindow(QMainWindow):
             "Enter one URL per line (YouTube, Twitter, TikTok, etc.)"
         )
         self.url_input.setTabChangesFocus(True)
-        self.url_input.setMinimumHeight(96)
+        self.url_input.setAccessibleName("Download URLs")
+        self.url_input.setMinimumHeight(88)
         self.url_input.setToolTip(
             "Paste one URL per line. You can also drag & drop links here."
         )
@@ -188,14 +218,22 @@ class MainWindow(QMainWindow):
         fmt_row.setSpacing(6)
         fmt_row.addWidget(fmt_label, 0)
 
-        self.mp3_btn = QPushButton("MP3", self)
+        self.format_switch = QFrame(self)
+        self.format_switch.setObjectName("FormatSwitch")
+        format_switch_layout = QHBoxLayout(self.format_switch)
+        format_switch_layout.setContentsMargins(0, 0, 0, 0)
+        format_switch_layout.setSpacing(0)
+
+        self.mp3_btn = QPushButton("MP3", self.format_switch)
+        self.mp3_btn.setObjectName("FormatSegmentLeft")
         self.mp3_btn.setCheckable(True)
         self.mp3_btn.setProperty("formatToggle", True)
         self.mp3_btn.setToolTip(
             "Audio-only download. Converts best audio to MP3 at the selected bitrate."
         )
 
-        self.mp4_btn = QPushButton("MP4", self)
+        self.mp4_btn = QPushButton("MP4", self.format_switch)
+        self.mp4_btn.setObjectName("FormatSegmentRight")
         self.mp4_btn.setCheckable(True)
         self.mp4_btn.setProperty("formatToggle", True)
         self.mp4_btn.setToolTip(
@@ -206,11 +244,11 @@ class MainWindow(QMainWindow):
         self.fmt_group.setExclusive(True)
         self.fmt_group.addButton(self.mp3_btn)
         self.fmt_group.addButton(self.mp4_btn)
+        format_switch_layout.addWidget(self.mp3_btn)
+        format_switch_layout.addWidget(self.mp4_btn)
+        fmt_row.addWidget(self.format_switch, 0)
 
-        fmt_row.addWidget(self.mp3_btn, 0)
-        fmt_row.addWidget(self.mp4_btn, 0)
-
-        fmt_row.addSpacing(12)
+        fmt_row.addSpacing(10)
 
         qual_label = QLabel("Quality:", self)
         qual_label.setToolTip(
@@ -277,26 +315,26 @@ class MainWindow(QMainWindow):
         self.ffmpeg_mode.setToolTip(
             "Append: Add to defaults. Override: Replace/Force specific args."
         )
-        self.ffmpeg_mode.setFixedWidth(100)
+        self.ffmpeg_mode.setFixedWidth(108)
         ffmpeg_row.addWidget(self.ffmpeg_mode, 0)
 
         download_layout.addLayout(ffmpeg_row)
 
         opt_row = QHBoxLayout()
-        self.playlist_checkbox = QCheckBox("Download playlist", self)
+        self.playlist_checkbox = ToggleSwitch("Download playlist", self)
         self.playlist_checkbox.setToolTip(
             "If the link is a playlist/series, download all items. Otherwise only the single video."
         )
-        self.restrict_checkbox = QCheckBox("Restrict filenames", self)
+        self.restrict_checkbox = ToggleSwitch("Restrict filenames", self)
         self.restrict_checkbox.setToolTip(
             "Use only ASCII-safe characters in file names (helps on some filesystems)."
         )
-        self.async_checkbox = QCheckBox("Async mode", self)
+        self.async_checkbox = ToggleSwitch("Async mode", self)
         self.async_checkbox.setToolTip(
             "Use async download manager for better concurrency and performance"
         )
         self.async_checkbox.setChecked(True)
-        self.aria2c_checkbox = QCheckBox("Use aria2c", self)
+        self.aria2c_checkbox = ToggleSwitch("Use aria2c", self)
         self.aria2c_checkbox.setToolTip(
             "Use aria2c for multi-connection downloads (faster but requires aria2c binary)"
         )
@@ -305,7 +343,7 @@ class MainWindow(QMainWindow):
         opt_row.addWidget(self.async_checkbox, 0)
         opt_row.addWidget(self.aria2c_checkbox, 0)
         opt_row.addStretch(1)
-        opt_row.setSpacing(6)
+        opt_row.setSpacing(4)
         download_layout.addLayout(opt_row)
 
         actions_row = QHBoxLayout()
@@ -318,6 +356,9 @@ class MainWindow(QMainWindow):
 
         self.network_label = QLabel("Network: Checking...", self)
         self.network_label.setObjectName("NetworkLabel")
+        self.network_label.setProperty("state", "pending")
+        self.network_label.setAccessibleName("Network status")
+        self.network_label.setVisible(False)
         self.network_label.setToolTip("Current network connection status")
 
         self.check_network_button = QPushButton("Check Network", self)
@@ -329,6 +370,11 @@ class MainWindow(QMainWindow):
         actions_row.addWidget(self.network_label, 0)
         actions_row.addWidget(self.check_network_button, 0)
         actions_row.addStretch(1)
+        actions_row.setSpacing(4)
+        download_layout.addLayout(actions_row)
+
+        transport_row = QHBoxLayout()
+        transport_row.addStretch(1)
 
         self.start_button = QPushButton("Start Download", self)
         self.start_button.setObjectName("DownloadButton")
@@ -347,12 +393,12 @@ class MainWindow(QMainWindow):
         self.skip_button.setObjectName("SkipButton")
         self.skip_button.setToolTip("Skip the current download and move to the next")
         self.skip_button.setEnabled(False)
-        actions_row.addWidget(self.start_button, 0)
-        actions_row.addWidget(self.cancel_button, 0)
-        actions_row.addWidget(self.pause_button, 0)
-        actions_row.addWidget(self.skip_button, 0)
-        actions_row.setSpacing(6)
-        download_layout.addLayout(actions_row)
+        transport_row.addWidget(self.start_button, 0)
+        transport_row.addWidget(self.cancel_button, 0)
+        transport_row.addWidget(self.pause_button, 0)
+        transport_row.addWidget(self.skip_button, 0)
+        transport_row.setSpacing(4)
+        download_layout.addLayout(transport_row)
 
         self.tabs.addTab(download_tab, "Download")
 
@@ -460,7 +506,7 @@ class MainWindow(QMainWindow):
         self.cookie_file_input.textChanged.connect(self._save_settings)
         self.cookie_file_browse = QToolButton(self)
         self.cookie_file_browse.setObjectName("CookieBrowseButton")
-        self.cookie_file_browse.setIcon(self.style().standardIcon(QStyle.SP_FileIcon))
+        self.cookie_file_browse.setIcon(line_icon("file"))
         self.cookie_file_browse.setToolTip("Browse for cookie file")
         self.cookie_file_browse.clicked.connect(self._choose_cookie_file)
         file_group_layout.addWidget(cookie_file_label, 0)
@@ -476,14 +522,15 @@ class MainWindow(QMainWindow):
             "Close the browser before downloading for best results.",
             self,
         )
+        info_label.setObjectName("CookieTip")
         info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: #888; font-size: 11px;")
         help_row.addWidget(info_label, 1)
 
         self.help_button = QToolButton(self)
         self.help_button.setObjectName("HelpButton")
         self.help_button.setText("?")
         self.help_button.setToolTip("Open Cookie Help Guide")
+        self.help_button.setAccessibleName("Open Cookie Help Guide")
         self.help_button.clicked.connect(self._show_cookie_help)
         help_row.addWidget(self.help_button, 0)
 
@@ -499,14 +546,21 @@ class MainWindow(QMainWindow):
         root.addWidget(self.progress_bar, 0)
 
         self.status_label = QLabel("Ready", self)
+        self.status_label.setObjectName("StatusLabel")
+        self.status_label.setProperty("state", "ready")
+        self.status_label.setAccessibleName("Download status")
+        self.status_label.setVisible(False)
         self.status_label.setWordWrap(True)
         root.addWidget(self.status_label, 0)
 
         self.log_output = QPlainTextEdit(self)
+        self.log_output.setObjectName("LogOutput")
         self.log_output.setReadOnly(True)
-        self.log_output.setMinimumHeight(120)
+        self.log_output.setAccessibleName("Download activity log")
+        self.log_output.setMinimumHeight(104)
+        self.log_output.setPlaceholderText("Status and activity will appear here.")
         self.log_output.setToolTip(
-            "Detailed log of actions, options, progress, and errors."
+            "Toolchain, network, download status, progress, and error output."
         )
         root.addWidget(self.log_output, 1)
 
@@ -540,10 +594,38 @@ class MainWindow(QMainWindow):
         self._update_quality_options()
         self._refresh_dependency_status()
         self._update_queue_summary()
+        self._set_status("Ready")
 
-        self.setMinimumSize(700, 560)
+        self.setMinimumSize(760, 600)
+        self.resize(920, 700)
 
         self._check_network_status()
+
+    @staticmethod
+    def _set_widget_state(widget: QWidget, state: str) -> None:
+        """Refresh a dynamic QSS state only when its semantic value changes."""
+        if widget.property("state") == state:
+            return
+        widget.setProperty("state", state)
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+
+    def _set_status(
+        self,
+        message: str,
+        state: str = "ready",
+        *,
+        live: bool = False,
+    ) -> None:
+        """Keep the compatibility label in sync while rendering status in the console."""
+        self.status_label.setText(message)
+        self._set_widget_state(self.status_label, state)
+        if not hasattr(self, "log_output"):
+            return
+        if live:
+            self._set_live_console_status(f"Status: {message}")
+        else:
+            self.append_log(f"Status: {message}")
 
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasUrls() or event.mimeData().hasText():
@@ -612,9 +694,11 @@ class MainWindow(QMainWindow):
         incoming_texts: Iterable[str],
         source: str,
     ) -> QueueMergeResult:
+        existing_text = self.url_input.toPlainText()
         result = merge_url_queue(
-            self.url_input.toPlainText(),
+            existing_text,
             incoming_texts,
+            existing_analysis=self._get_queue_analysis(existing_text),
         )
         if result.added_count:
             self.url_input.setPlainText(result.text)
@@ -622,8 +706,7 @@ class MainWindow(QMainWindow):
             self._update_queue_summary()
 
         message = self._queue_change_message(result, source)
-        self.status_label.setText(message)
-        self.append_log(message)
+        self._set_status(message, "ready")
         return result
 
     @staticmethod
@@ -712,6 +795,10 @@ class MainWindow(QMainWindow):
         self.cookie_file_input.setText(cookie_file)
 
     def _save_settings(self) -> None:
+        """Coalesce rapid control edits so typing never performs disk work."""
+        self._settings_save_timer.start()
+
+    def _save_settings_now(self) -> None:
         self.settings.setValue("directory", self.dir_input.text().strip())
         is_mp3 = self.mp3_btn.isChecked()
         self.settings.setValue("is_mp3", is_mp3)
@@ -768,10 +855,19 @@ class MainWindow(QMainWindow):
     def _open_folder(self) -> None:
         open_in_file_manager(self.dir_input.text().strip())
 
+    def _get_queue_analysis(self, text: Optional[str] = None) -> QueueAnalysis:
+        """Return analysis for the editor's exact current text without stale reuse."""
+        if text is None:
+            text = self.url_input.toPlainText()
+        if text != self._queue_cache_text or self._queue_cache_analysis is None:
+            self._queue_cache_text = text
+            self._queue_cache_analysis = analyze_url_queue(text)
+        return self._queue_cache_analysis
+
     def _clean_url_queue(self) -> None:
-        analysis = analyze_url_queue(self.url_input.toPlainText())
+        analysis = self._get_queue_analysis()
         if not analysis.has_cleanup_items:
-            self.status_label.setText("Queue is already clean.")
+            self._set_status("Queue is already clean.", "ready")
             return
 
         self.url_input.setPlainText(analysis.cleaned_text)
@@ -792,16 +888,14 @@ class MainWindow(QMainWindow):
             f"Queue cleaned. Kept {len(analysis.urls)} unique {kept_noun}. "
             f"Removed {', '.join(removed)}."
         )
-        self.status_label.setText(message)
-        self.append_log(message)
+        self._set_status(message, "ready")
 
     def _clear_urls(self) -> None:
         self.url_input.clear()
-        self.status_label.setText("Queue cleared. Paste one or more links to begin.")
-        self.append_log("URL queue cleared")
+        self._set_status("Queue cleared. Paste one or more links to begin.", "ready")
 
     def _update_queue_summary(self) -> None:
-        analysis = analyze_url_queue(self.url_input.toPlainText())
+        analysis = self._get_queue_analysis()
         count = len(analysis.urls)
         noun = "link" if count == 1 else "links"
         summary_parts = [f"Queue: {count} {noun}"]
@@ -867,10 +961,17 @@ class MainWindow(QMainWindow):
         aria_state = "ready" if self._aria2c_available else "missing"
         ffmpeg_origin = self._tool_origin(self._ffmpeg_path)
         aria_origin = self._tool_origin(self._aria2c_path)
-        self.dependency_label.setText(
+        toolchain_text = (
             f"Toolchain: FFmpeg {ffmpeg_state} ({ffmpeg_origin}) | "
             f"aria2c {aria_state} ({aria_origin}) | yt-dlp {self._yt_dlp_version}"
         )
+        self.dependency_label.setText(toolchain_text)
+        if (
+            hasattr(self, "log_output")
+            and toolchain_text != self._last_toolchain_console_text
+        ):
+            self.append_log(toolchain_text)
+            self._last_toolchain_console_text = toolchain_text
         details = [
             f"FFmpeg: {self._ffmpeg_path}",
             f"FFmpeg version: {self._ffmpeg_version}",
@@ -885,9 +986,61 @@ class MainWindow(QMainWindow):
             state = "partial"
         else:
             state = "warning"
-        self.dependency_label.setProperty("state", state)
-        self.dependency_label.style().unpolish(self.dependency_label)
-        self.dependency_label.style().polish(self.dependency_label)
+        self._set_widget_state(self.dependency_label, state)
+
+    def _start_dependency_version_probes(self) -> None:
+        """Probe informational tool versions without blocking first paint."""
+        probes = (
+            ("ffmpeg", self._ffmpeg_path, ["-version"], "_ffmpeg_version"),
+            ("aria2c", self._aria2c_path, ["--version"], "_aria2c_version"),
+        )
+        for name, path, arguments, version_attr in probes:
+            if path == "Not found":
+                continue
+            process = QProcess(self)
+            process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+            self._dependency_processes[name] = (process, version_attr)
+            process.finished.connect(
+                lambda _code, _status, key=name, proc=process: (
+                    self._finish_dependency_version_probe(key, proc)
+                )
+            )
+            process.errorOccurred.connect(
+                lambda _error, key=name, proc=process: (
+                    self._finish_dependency_version_probe(key, proc)
+                )
+            )
+            process.start(path, arguments)
+
+    def _finish_dependency_version_probe(
+        self,
+        name: str,
+        process: QProcess,
+    ) -> None:
+        current = self._dependency_processes.get(name)
+        if current is None or current[0] is not process:
+            return
+        _, version_attr = self._dependency_processes.pop(name)
+        output = bytes(process.readAllStandardOutput()).decode(
+            "utf-8", errors="replace"
+        )
+        version = next(
+            (line.strip() for line in output.splitlines() if line.strip()),
+            "unknown",
+        )
+        setattr(self, version_attr, version)
+        process.deleteLater()
+        self.append_log(f"{name}: {version}")
+        self._refresh_dependency_status()
+
+    def _stop_dependency_version_probes(self) -> None:
+        processes = list(self._dependency_processes.values())
+        self._dependency_processes.clear()
+        for process, _version_attr in processes:
+            if process.state() != QProcess.ProcessState.NotRunning:
+                process.kill()
+                process.waitForFinished(1000)
+            process.deleteLater()
 
     def _on_browser_changed(self, browser: str) -> None:
         """Save settings when browser changes."""
@@ -942,21 +1095,21 @@ class MainWindow(QMainWindow):
         layout.setSpacing(12)
 
         title = QLabel("<h2>🍪 Cookie Fetching Guide</h2>", dialog)
-        title.setStyleSheet("color: #0a84ff; font-size: 16px;")
+        title.setObjectName("DialogTitle")
         layout.addWidget(title)
 
         help_text = QTextBrowser(dialog)
         help_text.setOpenExternalLinks(True)
         help_text.setHtml("""
         <style>
-            body { color: #ffffff; font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt; }
-            h3 { color: #0a84ff; margin-top: 16px; margin-bottom: 8px; }
+            body { color: #f1f4f8; font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt; }
+            h3 { color: #a78bfa; margin-top: 16px; margin-bottom: 8px; }
             p { margin: 6px 0; line-height: 1.5; }
             ul { margin-left: 20px; }
             li { margin: 4px 0; }
-            code { background-color: #2a2a2a; padding: 2px 6px; border-radius: 3px; color: #4caf50; }
-            .warning { color: #ff9800; }
-            .browser { color: #4fc3f7; }
+            code { background-color: #242a34; padding: 2px 6px; border-radius: 3px; color: #a8e7c2; }
+            .warning { color: #f3bd63; }
+            .browser { color: #c4b5fd; }
         </style>
         
         <h3>Why Use Cookies?</h3>
@@ -1018,7 +1171,7 @@ class MainWindow(QMainWindow):
         
         <p style="margin-top: 20px; color: #888;">
             For more info, see: 
-            <a href="https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp" style="color: #0a84ff;">yt-dlp Cookie FAQ</a>
+            <a href="https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp" style="color: #a78bfa;">yt-dlp Cookie FAQ</a>
         </p>
         """)
         layout.addWidget(help_text, 1)
@@ -1041,7 +1194,23 @@ class MainWindow(QMainWindow):
             if retry_urls:
                 self._add_urls_to_queue(retry_urls, "download history")
 
+    def _set_live_console_status(self, message: str) -> None:
+        """Replace the trailing live-status line instead of flooding the console."""
+        if not self._live_status_active:
+            self.log_output.appendPlainText(message)
+            self._live_status_active = True
+        else:
+            cursor = QTextCursor(self.log_output.document())
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            cursor.movePosition(
+                QTextCursor.MoveOperation.StartOfBlock,
+                QTextCursor.MoveMode.KeepAnchor,
+            )
+            cursor.insertText(message)
+        self.log_output.ensureCursorVisible()
+
     def append_log(self, message: str) -> None:
+        self._live_status_active = False
         self.log_output.appendPlainText(message)
 
     def _set_controls_enabled(self, enabled: bool) -> None:
@@ -1062,36 +1231,73 @@ class MainWindow(QMainWindow):
         self.aria2c_checkbox.setEnabled(enabled)
         self.import_urls_button.setEnabled(enabled)
         self.clean_urls_button.setEnabled(
-            enabled
-            and analyze_url_queue(self.url_input.toPlainText()).has_cleanup_items
+            enabled and self._get_queue_analysis().has_cleanup_items
         )
         self.clear_urls_button.setEnabled(enabled)
         self.history_button.setEnabled(True)
-        self.check_network_button.setEnabled(enabled)
+        self._controls_enabled = enabled
+        self.check_network_button.setEnabled(
+            enabled and self._network_socket is None
+        )
         self.start_button.setEnabled(enabled)
         self.cancel_button.setEnabled(not enabled)
         self.pause_button.setEnabled(not enabled)
         self.skip_button.setEnabled(not enabled)
 
     def _check_network_status(self) -> None:
+        """Start a cancellable, non-blocking TCP connectivity check."""
+        self._cancel_network_check()
         self.network_label.setText("Network: Checking...")
-        self.network_label.setStyleSheet("")
+        self._set_widget_state(self.network_label, "pending")
+        self.append_log("Network status: Checking...")
+        self.check_network_button.setEnabled(False)
 
-        from core.network import check_internet_connection
+        socket = QTcpSocket(self)
+        self._network_socket = socket
+        socket.connected.connect(
+            lambda current=socket: self._finish_network_check(current, True)
+        )
+        socket.errorOccurred.connect(
+            lambda _error, current=socket: self._finish_network_check(
+                current, False
+            )
+        )
+        self._network_timer.start(5000)
+        socket.connectToHost("8.8.8.8", 53)
 
-        is_online = check_internet_connection()
+    def _on_network_timeout(self) -> None:
+        socket = self._network_socket
+        if socket is not None:
+            self._finish_network_check(socket, False)
+
+    def _finish_network_check(self, socket: QTcpSocket, is_online: bool) -> None:
+        if socket is not self._network_socket:
+            return
+        self._network_socket = None
+        self._network_timer.stop()
+        socket.abort()
+        socket.deleteLater()
+
         ytdlp_ver = self._yt_dlp_version or "unknown"
-
         if is_online:
             self.network_label.setText(f"Network: Online | yt-dlp: {ytdlp_ver}")
-            self.network_label.setStyleSheet("color: #4caf50;")
+            self._set_widget_state(self.network_label, "ready")
             self.append_log(f"Network status: Online | yt-dlp: {ytdlp_ver}")
         else:
             self.network_label.setText(f"Network: Offline | yt-dlp: {ytdlp_ver}")
-            self.network_label.setStyleSheet("color: #f44336;")
+            self._set_widget_state(self.network_label, "error")
             self.append_log(
                 f"Network status: Offline | yt-dlp: {ytdlp_ver} - downloads may fail"
             )
+        self.check_network_button.setEnabled(self._controls_enabled)
+
+    def _cancel_network_check(self) -> None:
+        self._network_timer.stop()
+        socket = self._network_socket
+        self._network_socket = None
+        if socket is not None:
+            socket.abort()
+            socket.deleteLater()
 
     def _toggle_pause(self) -> None:
         worker = self._worker or self._async_worker
@@ -1110,11 +1316,10 @@ class MainWindow(QMainWindow):
             self.append_log("Download paused")
 
     def _collect_urls(self) -> List[str]:
-        analysis = analyze_url_queue(self.url_input.toPlainText())
-        return list(analysis.urls)
+        return list(self._get_queue_analysis().urls)
 
     def _validate_inputs(self) -> Optional[str]:
-        analysis = analyze_url_queue(self.url_input.toPlainText())
+        analysis = self._get_queue_analysis()
         if analysis.invalid_entries:
             first = analysis.invalid_entries[0]
             remaining = len(analysis.invalid_entries) - 1
@@ -1147,10 +1352,10 @@ class MainWindow(QMainWindow):
         error = self._validate_inputs()
         if error:
             QMessageBox.warning(self, "Validation", error)
-            self.status_label.setText(error)
+            self._set_status(error, "error")
             return
 
-        queue_analysis = analyze_url_queue(self.url_input.toPlainText())
+        queue_analysis = self._get_queue_analysis()
         urls = list(queue_analysis.urls)
         self._downloading_total = len(urls)
         self._downloading_started = 0
@@ -1186,7 +1391,7 @@ class MainWindow(QMainWindow):
 
         self._set_controls_enabled(False)
         self.progress_bar.setValue(0)
-        self.status_label.setText("Starting download...")
+        self._set_status("Starting download...", "active")
         self.append_log(
             f"System: yt-dlp {self._yt_dlp_version}, ffmpeg: {self._ffmpeg_path}"
         )
@@ -1212,7 +1417,9 @@ class MainWindow(QMainWindow):
             )
 
         if use_async:
-            # Use async download manager
+            # Defer the heavy yt-dlp engine import until a download is requested.
+            from core.async_manager import AsyncVideoDownloadWorker
+
             self._worker_thread = QThread(self)
             self._async_worker = AsyncVideoDownloadWorker(
                 urls, opts, history=self._history, max_concurrent=3
@@ -1231,7 +1438,9 @@ class MainWindow(QMainWindow):
             self._worker_thread.finished.connect(self._cleanup_worker)
             self._worker_thread.start()
         else:
-            # Use legacy sync download manager
+            # Keep the legacy engine available without charging GUI startup for it.
+            from core.downloader import VideoDownloadWorker
+
             self._worker_thread = QThread(self)
             self._worker = VideoDownloadWorker(urls, opts, history=self._history)
             self._worker.moveToThread(self._worker_thread)
@@ -1251,16 +1460,14 @@ class MainWindow(QMainWindow):
     def _cancel_downloads(self) -> None:
         worker = self._worker or self._async_worker
         if worker:
-            self.append_log("Cancellation requested...")
-            self.status_label.setText("Cancelling...")
+            self._set_status("Cancelling...", "active")
             self.cancel_button.setEnabled(False)
             worker.cancel()
 
     def _skip_current(self) -> None:
         worker = self._worker or self._async_worker
         if worker:
-            self.append_log("Skipping current download...")
-            self.status_label.setText("Skipping...")
+            self._set_status("Skipping...", "active")
             self.skip_button.setEnabled(False)
             worker.skip_current()
 
@@ -1274,7 +1481,7 @@ class MainWindow(QMainWindow):
                 f"Completed {self._downloading_completed}/{self._downloading_total}"
                 f" | Active {self._downloading_active}: "
             )
-        self.status_label.setText(prefix + text)
+        self._set_status(prefix + text, "active", live=True)
 
     def _on_item_started(self, url: str) -> None:
         self._downloading_started += 1
@@ -1294,11 +1501,14 @@ class MainWindow(QMainWindow):
     def _on_all_finished(self, success_count: int, fail_count: int) -> None:
         self.append_log(f"All done. Success: {success_count}, Failed: {fail_count}")
         if fail_count > 0:
-            self.status_label.setText(
-                f"Completed with errors. Success: {success_count}, Failed: {fail_count}"
+            self._set_status(
+                f"Completed with errors. Success: {success_count}, Failed: {fail_count}",
+                "warning",
             )
         else:
-            self.status_label.setText(f"Completed successfully. Items: {success_count}")
+            self._set_status(
+                f"Completed successfully. Items: {success_count}", "ready"
+            )
 
         self._set_controls_enabled(True)
 
@@ -1306,7 +1516,7 @@ class MainWindow(QMainWindow):
             self._worker_thread.quit()
 
     def _on_error(self, message: str) -> None:
-        self.status_label.setText(message)
+        self._set_status(message, "error")
 
     def _cleanup_worker(self) -> None:
         if self._worker:
@@ -1335,14 +1545,20 @@ class MainWindow(QMainWindow):
             self._worker_thread = None
 
     def _warn_ffmpeg(self) -> None:
-        self.status_label.setText(
-            "ffmpeg not found. Some formats may not process. Consider installing ffmpeg."
+        self._set_status(
+            "ffmpeg not found. Some formats may not process. Consider installing ffmpeg.",
+            "warning",
         )
         self.append_log(
             "ffmpeg not found on PATH. Audio extraction (MP3) and metadata embedding require ffmpeg."
         )
 
     def closeEvent(self, event) -> None:
+        if self._settings_save_timer.isActive():
+            self._settings_save_timer.stop()
+            self._save_settings_now()
+        self._cancel_network_check()
+        self._stop_dependency_version_probes()
         worker = self._worker or self._async_worker
         if worker:
             try:
@@ -1363,4 +1579,8 @@ class MainWindow(QMainWindow):
                     error,
                     exc_info=True,
                 )
+        if not self._worker_thread or not self._worker_thread.isRunning():
+            close_history = getattr(self._history, "close", None)
+            if close_history is not None:
+                close_history()
         super().closeEvent(event)
