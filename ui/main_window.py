@@ -421,6 +421,7 @@ class MainWindow(QMainWindow):
         self.browser_combo.addItems(
             [
                 "None",
+                "Cookie File (Fallback)",
                 "brave",
                 "chrome",
                 "chromium",
@@ -432,8 +433,11 @@ class MainWindow(QMainWindow):
             ]
         )
         self.browser_combo.setToolTip(
-            "Select browser to extract cookies from.\n"
-            "For Chromium forks (Thorium, Ungoogled, etc.), use Cookie File instead."
+            "Cookie source. Exactly one source is used:\n"
+            "- None: send no cookies.\n"
+            "- Cookie File (Fallback): use the cookies.txt file below exclusively.\n"
+            "- Browser name: read cookies from that browser only.\n"
+            "For Chromium forks (Thorium, Ungoogled, etc.), select Cookie File (Fallback)."
         )
         self.browser_combo.currentTextChanged.connect(self._on_browser_changed)
         browser_row.addWidget(browser_label, 0)
@@ -494,14 +498,16 @@ class MainWindow(QMainWindow):
 
         cookie_file_label = QLabel("Cookie File:", self)
         cookie_file_label.setToolTip(
-            "Path to a Netscape-format cookies.txt file. Used if browser cookies are disabled."
+            "Path to a Netscape-format cookies.txt file. "
+            "Used exclusively when 'Cookie File (Fallback)' is selected as the source."
         )
         self.cookie_file_input = QLineEdit(self)
         self.cookie_file_input.setPlaceholderText(
             "Path to cookies.txt (Netscape format)"
         )
         self.cookie_file_input.setToolTip(
-            "Netscape-format cookie file exported from browser."
+            "Netscape-format cookie file exported from browser. "
+            "Used exclusively when 'Cookie File (Fallback)' is selected above."
         )
         self.cookie_file_input.textChanged.connect(self._save_settings)
         self.cookie_file_browse = QToolButton(self)
@@ -777,22 +783,23 @@ class MainWindow(QMainWindow):
             self.ffmpeg_mode.setCurrentIndex(idx)
 
         # Cookie settings
+        cookie_file = self.settings.value("cookie_file", "", type=str).strip()
         browser = self.settings.value("cookie_browser", "None", type=str)
-        browser_idx = self.browser_combo.findText(browser)
-        if browser_idx >= 0:
-            self.browser_combo.setCurrentIndex(browser_idx)
+        if self.browser_combo.findText(browser) < 0:
+            browser = "None"
+        # Legacy configs saved a cookie file while the source was 'None' and the
+        # file was still sent. Keep those downloads working: switch to the file source.
+        if browser == "None" and cookie_file:
+            browser = self.COOKIE_FILE_SOURCE
+        self.browser_combo.setCurrentIndex(self.browser_combo.findText(browser))
 
-        profile = self.settings.value("cookie_profile", "", type=str)
-        self.profile_input.setText(profile)
-
-        keyring = self.settings.value("cookie_keyring", "", type=str)
-        self.keyring_input.setText(keyring)
-
-        container = self.settings.value("cookie_container", "", type=str)
-        self.container_input.setText(container)
-
-        cookie_file = self.settings.value("cookie_file", "", type=str)
+        self.profile_input.setText(self.settings.value("cookie_profile", "", type=str))
+        self.keyring_input.setText(self.settings.value("cookie_keyring", "", type=str))
+        self.container_input.setText(
+            self.settings.value("cookie_container", "", type=str)
+        )
         self.cookie_file_input.setText(cookie_file)
+        self._update_browser_fields(self.browser_combo.currentText())
 
     def _save_settings(self) -> None:
         """Coalesce rapid control edits so typing never performs disk work."""
@@ -1043,8 +1050,15 @@ class MainWindow(QMainWindow):
             process.deleteLater()
 
     def _on_browser_changed(self, browser: str) -> None:
-        """Save settings when browser changes."""
+        """Sync field availability and save settings when the source changes."""
+        self._update_browser_fields(browser)
         self._save_settings()
+
+    def _update_browser_fields(self, browser: str) -> None:
+        """Profile/keyring/container only apply to a real browser source."""
+        browser_active = browser not in ("None", self.COOKIE_FILE_SOURCE)
+        for field in (self.profile_input, self.keyring_input, self.container_input):
+            field.setEnabled(browser_active)
 
     def _choose_cookie_file(self) -> None:
         """Open file dialog to select a cookie file."""
@@ -1053,6 +1067,8 @@ class MainWindow(QMainWindow):
         )
         if path:
             self.cookie_file_input.setText(os.path.normpath(path))
+            if self.browser_combo.currentText() == "None":
+                self.browser_combo.setCurrentText(self.COOKIE_FILE_SOURCE)
 
     SUPPORTED_BROWSERS = {
         "brave",
@@ -1065,10 +1081,12 @@ class MainWindow(QMainWindow):
         "vivaldi",
     }
 
+    COOKIE_FILE_SOURCE = "Cookie File (Fallback)"
+
     def _get_cookies_from_browser_tuple(self):
         """Build the cookies_from_browser tuple for yt-dlp."""
         browser = self.browser_combo.currentText()
-        if browser == "None":
+        if browser in ("None", self.COOKIE_FILE_SOURCE):
             return None
 
         if browser.lower() not in self.SUPPORTED_BROWSERS:
@@ -1082,6 +1100,49 @@ class MainWindow(QMainWindow):
         container = self.container_input.text().strip() or None
 
         return (browser, profile, keyring, container)
+
+    def _collect_cookie_settings(self):
+        """Return (cookies_from_browser, cookie_file_path, log_lines).
+
+        Exactly one cookie source is active:
+        - Browser selected: browser cookies only; a cookie file is ignored.
+        - Cookie File (Fallback) selected: the cookies.txt file exclusively.
+        - None: no cookies at all.
+        """
+        browser = self.browser_combo.currentText()
+        cookie_file = self.cookie_file_input.text().strip() or None
+        logs = []
+
+        if browser == "None":
+            if cookie_file:
+                logs.append(
+                    "Cookies: none (a cookie file is set but the source is 'None'; "
+                    f"select '{self.COOKIE_FILE_SOURCE}' to use it)"
+                )
+            else:
+                logs.append("Cookies: none")
+            return None, None, logs
+
+        if browser == self.COOKIE_FILE_SOURCE:
+            if not cookie_file:
+                logs.append(
+                    f"Warning: '{self.COOKIE_FILE_SOURCE}' is selected but no cookie "
+                    "file is set. No cookies will be sent."
+                )
+                return None, None, logs
+            if not os.path.isfile(cookie_file):
+                logs.append(f"Warning: Cookie file not found: {cookie_file}")
+            logs.append(f"Cookies: file {cookie_file} (exclusive)")
+            return None, cookie_file, logs
+
+        if cookie_file:
+            logs.append(
+                f"Cookies: browser '{browser}' (cookie file '{cookie_file}' ignored; "
+                f"select '{self.COOKIE_FILE_SOURCE}' to use the file instead)"
+            )
+        else:
+            logs.append(f"Cookies: browser '{browser}'")
+        return self._get_cookies_from_browser_tuple(), None, logs
 
     def _show_cookie_help(self) -> None:
         """Show a help dialog explaining how to use cookie fetching."""
@@ -1138,7 +1199,7 @@ class MainWindow(QMainWindow):
         <p>For Chromium forks like <b>Thorium</b>, <b>Ungoogled Chromium</b>, or others not listed:</p>
         <ul>
             <li>These browsers are not directly supported by yt-dlp's browser cookie fetching.</li>
-            <li>Please use the <b>Cookie File</b> method below.</li>
+            <li>Please use the <b>Cookie File (Fallback)</b> method below.</li>
         </ul>
         
         <h3>Browser Profiles</h3>
@@ -1161,13 +1222,15 @@ class MainWindow(QMainWindow):
             <li>Some browsers encrypt cookies - this may require additional setup on Linux</li>
         </ul>
         
-        <h3>Cookie File (Alternative)</h3>
-        <p>If browser cookies don't work, you can export cookies manually:</p>
+        <h3>Cookie File (Fallback)</h3>
+        <p>If browser cookies don't work, export cookies manually and use them exclusively:</p>
         <ul>
             <li>Use a browser extension like "Get cookies.txt LOCALLY"</li>
             <li>Export to Netscape format (.txt file)</li>
             <li>Select the file in the "Cookie File (Fallback)" section</li>
+            <li>Set the Browser dropdown to <b>Cookie File (Fallback)</b></li>
         </ul>
+        <p>When selected, the cookie file is the <b>only</b> cookie source. The browser dropdown is ignored.</p>
         
         <p style="margin-top: 20px; color: #888;">
             For more info, see: 
@@ -1373,6 +1436,8 @@ class MainWindow(QMainWindow):
         use_async = self.async_checkbox.isChecked()
         use_aria2c = self.aria2c_checkbox.isChecked()
 
+        cookies_from_browser, cookie_file, cookie_logs = self._collect_cookie_settings()
+
         opts = DownloadOptions(
             is_mp3=self.mp3_btn.isChecked(),
             quality=self.quality_combo.currentText(),
@@ -1382,8 +1447,8 @@ class MainWindow(QMainWindow):
             restrict_filenames=self.restrict_checkbox.isChecked(),
             ffmpeg_add_args=f_add if f_add else None,
             ffmpeg_override_args=f_override if f_override else None,
-            cookies_from_browser=self._get_cookies_from_browser_tuple(),
-            cookies=self.cookie_file_input.text().strip() or None,
+            cookies_from_browser=cookies_from_browser,
+            cookies=cookie_file,
             use_aria2c=use_aria2c,
             max_connections=16,
             max_concurrent_downloads=3,
@@ -1408,6 +1473,8 @@ class MainWindow(QMainWindow):
         self.append_log(
             f"Playlist: {'Yes' if opts.download_playlist else 'No'} | Restrict filenames: {'Yes' if opts.restrict_filenames else 'No'}"
         )
+        for cookie_log in cookie_logs:
+            self.append_log(cookie_log)
         self.append_log(
             f"Async mode: {'Yes' if use_async else 'No'} | Aria2c: {'Yes' if use_aria2c else 'No'}"
         )

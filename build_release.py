@@ -8,9 +8,9 @@ import os
 import shutil
 import subprocess
 import sys
-from typing import List
+from typing import List, Optional
 
-VERSION = "2.2.1"
+VERSION = "2.3.0"
 AUTHOR = "Master0fFate"
 DESCRIPTION = (
     "YTDLE Media Downloader - Modern GUI/CLI downloader built with Python and PySide6"
@@ -25,6 +25,12 @@ ARIA2_FILE = ROOT_DIR / "aria2c.exe"
 THIRD_PARTY_NOTICES = ROOT_DIR / "THIRD_PARTY_NOTICES.md"
 
 
+def _resolve_node_path() -> Optional[str]:
+    """Find the JavaScript runtime that yt-dlp-ejs needs in the release."""
+    executable = "node.exe" if sys.platform == "win32" else "node"
+    return shutil.which(executable)
+
+
 def _python_file_version(version: str) -> str:
     """Convert semver-like strings to a 4-part Windows file version tuple."""
     parts = [p for p in version.split(".") if p.strip().isdigit()]
@@ -35,9 +41,12 @@ def _python_file_version(version: str) -> str:
 
 
 def _get_pyinstaller_command() -> List[str]:
-    """Prefer pyinstaller on PATH, fall back to python -m PyInstaller."""
-    if shutil.which("pyinstaller"):
-        return ["pyinstaller"]
+    """Run PyInstaller in the active Python environment.
+
+    yt-dlp and its EJS solver must come from the same environment as the
+    release build. A `pyinstaller` executable found earlier on PATH can point
+    to a different Python installation and omit required packages.
+    """
     return [sys.executable, "-m", "PyInstaller"]
 
 
@@ -54,10 +63,14 @@ def build_exe():
 
     required_assets = (ICON_FILE, FFMPEG_FILE, ARIA2_FILE, THIRD_PARTY_NOTICES)
     missing_assets = [path.name for path in required_assets if not path.is_file()]
+    node_path = _resolve_node_path()
+    if not node_path:
+        missing_assets.append("node.exe")
     if missing_assets:
         print(
             f"Release build aborted; missing required assets: {', '.join(missing_assets)}"
         )
+        print("Install Node.js, then run the release build again.")
         return False
 
     _clean_build_artifacts()
@@ -68,15 +81,23 @@ def build_exe():
         "--name",
         APP_NAME,
         "--clean",
+        "--specpath",
+        str(ROOT_DIR / "build"),
         "--noupx",
         "--collect-all",
         "yt_dlp",
+        "--collect-all",
+        "yt_dlp_ejs",
+        "--copy-metadata",
+        "yt-dlp-ejs",
         # Version info
         "--version-file",
         str(VERSION_FILE),
         # Hidden imports for new modules
         "--hidden-import",
         "core.async_manager",
+        "--hidden-import",
+        "core.cli",
         "--hidden-import",
         "core.database",
         "--hidden-import",
@@ -117,6 +138,8 @@ def build_exe():
         f"{FFMPEG_FILE};.",
         "--add-binary",
         f"{ARIA2_FILE};.",
+        "--add-binary",
+        f"{node_path};.",
         "--add-data",
         f"{THIRD_PARTY_NOTICES};.",
         "--log-level",

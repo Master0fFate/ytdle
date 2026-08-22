@@ -109,6 +109,9 @@ def build_yt_dlp_options(
             }
         )
 
+    # Cookie source precedence: browser cookies win if both are set. The GUI
+    # sends exactly one source (browser XOR cookie file), so this only matters
+    # for direct DownloadOptions use (e.g. the CLI).
     if opts.cookies_from_browser:
         options["cookiesfrombrowser"] = opts.cookies_from_browser
     elif opts.cookies:

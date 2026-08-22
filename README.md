@@ -65,42 +65,74 @@ Run `YTDLE.exe` or `python main.py` to launch the modern dark-themed GUI.
 - **Keyboard Shortcuts**: `Ctrl+Enter` starts downloads, `Ctrl+L` focuses the URL queue, and `Esc` requests cancellation.
 
 ### Command Line Interface (CLI)
-You can use the **same** executable for CLI operations.
+You can use the **same** executable for CLI operations. Every command shares settings and history with the GUI.
 
 **Basic Usage:**
 ```bash
-YTDLE.exe -i "https://youtube.com/watch?v=..."
+YTDLE.exe --url "https://youtube.com/watch?v=..."
+YTDLE.exe download --url "https://youtube.com/watch?v=..." -f mp4 -q 1080p
 ```
 
-**Options:**
+**Commands:**
+
+| Command | Description |
+| :--- | :--- |
+| `download` | Batch-download URLs (the default when omitted) |
+| `retry-failed` | Retry every failed history record |
+| `history` | List, search, export, or clear download history |
+| `check-network` | Test the network endpoint the app uses |
+| `tools` | Show yt-dlp, FFmpeg, and aria2c paths and versions |
+| `settings` | Show or save the GUI-compatible download settings |
+
+**Common download options:**
 
 | Argument | Description | Example |
 | :--- | :--- | :--- |
-| `-i`, `--input` | Input URL(s) (space separated) | `-i "url1" "url2"` |
-| `-od`, `--output-dir` | Output directory (default: current) | `-od "C:\Downloads"` |
-| `-f`, `--format` | Format (`mp3` or `mp4`, default: `mp3`) | `-f mp4` |
-| `-q`, `--quality` | Quality (e.g., `192k`, `1080p`, `Best`) | `-q 1080p` |
-| `-p`, `--playlist` | Download entire playlist | `-p` |
-| `-r`, `--restrict` | Restrict filenames to ASCII | `-r` |
-| `-t`, `--template` | Output filename template | `-t "%(uploader)s - %(title)s"` |
-| `--no-check-certificate` | Disable SSL validation | `--no-check-certificate` |
-| `--cookies` | Path to cookies file (anti-bot) | `--cookies cookies.txt` |
-| `--ffmpeg-add-args` | Append FFmpeg arguments | `--ffmpeg-add-args "-vcodec libx264"` |
-| `--ffmpeg-override-args` | Override FFmpeg arguments | `--ffmpeg-override-args "-vn"` |
-| `--aria2c` | Use aria2c as yt-dlp's external downloader | `--aria2c` |
-| `--connections` | aria2c connection count, clamped to 1-32 | `--connections 16` |
-| `-v`, `--verbose` | Enable verbose logging | `-v` |
+| `--url` | One URL; repeat the flag for a batch | `--url "url1" --url "url2"` |
+| `-i`, `--input` | One or more inline URLs | `-i "url1" "url2"` |
+| `--input-file` | UTF-8 URL list file, or `-` for stdin | `--input-file urls.txt` |
+| `-od`, `--output-dir` | Output directory (default: saved GUI selection) | `-od "C:\Downloads"` |
+| `-f`, `--format` | Format (`mp3` or `mp4`) | `-f mp4` |
+| `-q`, `--quality` | MP3 `320k`–`128k` or MP4 `Best`–`360p` | `-q 1080p` |
+| `-p`, `--playlist` / `--no-playlist` | Playlist handling | `-p` |
+| `-r`, `--restrict-filenames` | ASCII-safe file names | `-r` |
+| `-t`, `--output-template` | yt-dlp filename template | `-t "%(uploader)s - %(title)s"` |
+| `--cookies-from-browser` | Read cookies from a browser | `--cookies-from-browser chrome` |
+| `--cookies-file` | Use a Netscape cookies.txt file | `--cookies-file cookies.txt` |
+| `--no-cookies` | Send no cookies | `--no-cookies` |
+| `--ffmpeg-args` + `--ffmpeg-mode` | Custom FFmpeg flags (append or override) | `--ffmpeg-args "-vn" --ffmpeg-mode override` |
+| `--aria2c` / `--no-aria2c` | aria2c external downloader | `--aria2c --connections 16` |
+| `--concurrent-downloads` | Async engine workers (1-32) | `--concurrent-downloads 4` |
+| `--no-check-certificate` | Disable TLS certificate checking | `--no-check-certificate` |
+| `-v`, `--verbose` | Detailed engine status and logs | `-v` |
+
+Run `YTDLE.exe COMMAND --help` for every flag of a command.
 
 **Examples:**
 
-Download video as MP4 (1080p) to specific folder:
+Download a video as MP4 (1080p) to a specific folder:
 ```bash
-YTDLE.exe -i "https://youtu.be/..." -f mp4 -q 1080p -od "C:\MyVideos"
+YTDLE.exe --url "https://youtu.be/..." -f mp4 -q 1080p -od "C:\MyVideos"
 ```
 
-Download playlist as MP3 (320k):
+Download a playlist as MP3 (320k):
 ```bash
-YTDLE.exe -i "https://youtube.com/playlist?list=..." -f mp3 -q 320k -p
+YTDLE.exe --url "https://youtube.com/playlist?list=..." -f mp3 -q 320k -p
+```
+
+Download every URL from a file with browser cookies:
+```bash
+YTDLE.exe download --input-file urls.txt --cookies-from-browser firefox
+```
+
+Retry every failed download:
+```bash
+YTDLE.exe retry-failed --retries 20
+```
+
+List the last 10 completed downloads as JSON:
+```bash
+YTDLE.exe history --status completed --limit 10 --output json
 ```
 
 ## Compiling to Executable

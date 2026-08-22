@@ -90,3 +90,24 @@ def test_both_engines_export_the_shared_builder():
     assert (
         async_manager.build_yt_dlp_options_async is yt_dlp_options.build_yt_dlp_options
     )
+
+def test_cookie_source_precedence_in_shared_builder(monkeypatch):
+    monkeypatch.setattr(yt_dlp_options, "get_ffmpeg_path", lambda: None)
+
+    browser_only = downloader.build_yt_dlp_options(
+        _options(), lambda _data: None
+    )
+    assert "cookiesfrombrowser" not in browser_only
+    assert "cookiefile" not in browser_only
+
+    file_opts = _options()
+    file_opts.cookies = "C:/cookies/cookies.txt"
+    file_only = downloader.build_yt_dlp_options(file_opts, lambda _data: None)
+    assert file_only["cookiefile"] == "C:/cookies/cookies.txt"
+
+    both_opts = _options()
+    both_opts.cookies = "C:/cookies/cookies.txt"
+    both_opts.cookies_from_browser = ("chrome", None, None, None)
+    both = downloader.build_yt_dlp_options(both_opts, lambda _data: None)
+    assert both["cookiesfrombrowser"] == ("chrome", None, None, None)
+    assert "cookiefile" not in both

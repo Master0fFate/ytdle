@@ -16,4 +16,10 @@ YTDLE release executables aggregate the following independent command-line progr
 - Project and corresponding source tag: https://github.com/aria2/aria2/tree/release-1.37.0
 - License: GNU General Public License version 2 or later (GPL-2.0-or-later).
 
+## Node.js
+
+- Version: `22.22.2`
+- Project: https://nodejs.org/
+- License: MIT. Node.js is bundled as the JavaScript runtime required by `yt-dlp-ejs` for YouTube challenge solving.
+
 Exact package and executable checksums are recorded in `BINARY_PROVENANCE.md`.

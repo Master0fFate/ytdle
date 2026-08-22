@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.3.0 - 2026-08-22
+
+### Added
+
+- A full terminal interface (`YTDLE COMMAND`) with `download`, `retry-failed`, `history`, `check-network`, `tools`, and `settings` commands. `YTDLE --url ...` still works as a download shorthand.
+- `YTDLE download` reads repeated `--url` flags, inline `--input` URLs, and UTF-8 `--input-file` lists (including `-` for standard input) with comment, blank-line, duplicate, and URL validation before anything starts.
+- `YTDLE history` lists, searches, filters, exports failed URLs, and clears records; `YTDLE retry-failed` redownloads every failed record with optional setting overrides.
+- The terminal interface reads and writes the exact GUI settings, so both front-ends share one configuration, cookie policy, and download history.
+- `--cookies-from-browser`, `--cookies-file`, and `--no-cookies` flags with profile, keyring, and container options for both the CLI and the GUI cookie model.
+
+### Changed
+
+- The cookie selector now has an explicit `Cookie File (Fallback)` source. Exactly one cookie source is used: none, the cookie file, or one browser. Old configurations that saved a file while `None` was selected keep working.
+- Profile, keyring, and container fields are only enabled when a real browser is selected, and cookie decisions are reported in the activity console.
+- yt-dlp minimum raised to `2026.8.19` and `yt-dlp-ejs` added as a required dependency for reliable YouTube challenge solving.
+
+### Distribution
+
+- The release executable now bundles the Node.js runtime that `yt-dlp-ejs` needs, so JavaScript challenges keep working on machines without Node.js installed.
+- Release builds run PyInstaller from the active Python environment to keep yt-dlp and its solver in one package.
+- Added regression coverage for the CLI, cookie sources, yt-dlp-ejs bundling, and cookie precedence in the shared option builder.
+
 ## 2.2.1 - 2026-07-31
 
 ### Desktop experience
