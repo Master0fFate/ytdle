@@ -6,7 +6,7 @@ YTDLE can bundle `ffmpeg.exe` and `aria2c.exe` for Windows release builds, but t
 
 | Tool | Expected version | Source | Notes |
 | --- | --- | --- | --- |
-| FFmpeg | `2026-07-09-git-8de8405796` | https://www.gyan.dev/ffmpeg/builds/ffmpeg-git-full.7z | Gyan.dev Windows 64-bit static GPLv3 full build, linked by FFmpeg's official download page. Archive SHA-256 on 2026-07-10: `cca96614a28aedc518bb1227015bce401aeb91c1b1ea341a7cb25a417a9dcef2`. Extracted `ffmpeg.exe` SHA-256: `3f6d578ee13c20488cc31bb1dcc4ac662527f8d8015273fea0c6a454d799b52c`. Source commit: https://github.com/FFmpeg/FFmpeg/commit/8de8405796. |
+| FFmpeg | `2026-09-10-git-fd7c73d01e` | https://www.gyan.dev/ffmpeg/builds/ffmpeg-git-full.7z | Gyan.dev Windows 64-bit static GPLv3 full build, linked by FFmpeg's official download page. Archive SHA-256 on 2026-09-13: `79c5f59774797650770a8de0d85a20f0b49884b84929a4491e925f1f1591d572`. Extracted `ffmpeg.exe` SHA-256: `ffad32848c51c612a2264efe3c42a4a625cae1607869f5a0c58050b0ec21428a`. Source commit: https://github.com/FFmpeg/FFmpeg/commit/fd7c73d01e. |
 | aria2c | `1.37.0` | https://github.com/aria2/aria2/releases/tag/release-1.37.0 | Official signed aria2 release and newest upstream release as of 2026-07-10. Windows 64-bit archive SHA-256: `67d015301eef0b612191212d564c5bb0a14b5b9c4796b76454276a4d28d9b288`. Extracted `aria2c.exe` SHA-256: `be2099c214f63a3cb4954b09a0becd6e2e34660b886d4c898d260febfe9d70c2`. The refreshed official binary is byte-identical to the previous local copy. |
 | Node.js | `22.22.2` | https://nodejs.org/dist/v22.22.2/ | Official Windows x64 Node.js runtime bundled for `yt-dlp-ejs`. Extracted `node.exe` SHA-256: `ae1a50511be58e987483fdbc12125407443926d2d394669ade2352776e920dd3`. |
 

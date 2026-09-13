@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.history import DownloadHistory
+from ui.styles import strip_native_frames
 
 
 class HistoryDialog(QDialog):
@@ -29,6 +30,7 @@ class HistoryDialog(QDialog):
         self.setMinimumSize(900, 600)
 
         self._init_ui()
+        strip_native_frames(self)
         self._load_data()
 
     def _init_ui(self):

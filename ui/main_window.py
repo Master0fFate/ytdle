@@ -4,7 +4,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, Iterable, List, Optional
 
-from PySide6.QtCore import QProcess, QSettings, QThread, QTimer, Qt
+from PySide6.QtCore import QProcess, QSettings, QSize, QThread, QTimer, Qt
 from PySide6.QtGui import QKeySequence, QShortcut, QTextCursor
 from PySide6.QtNetwork import QTcpSocket
 from PySide6.QtWidgets import (
@@ -37,6 +37,7 @@ from ui.components import HistoryDialog
 from ui.components.title_bar import CustomTitleBar
 from ui.components.toggle_switch import ToggleSwitch
 from ui.icons import line_icon
+from ui.styles import strip_native_frames
 from ui.url_queue import (
     QueueAnalysis,
     QueueMergeResult,
@@ -97,6 +98,7 @@ class MainWindow(QMainWindow):
         self.settings = QSettings("Merlin", "YTDLE_v2")
 
         self._init_ui()
+        strip_native_frames(self)
         self._load_settings()
         self.setAcceptDrops(True)
         self._start_dependency_version_probes()
@@ -220,6 +222,7 @@ class MainWindow(QMainWindow):
 
         self.format_switch = QFrame(self)
         self.format_switch.setObjectName("FormatSwitch")
+        self.format_switch.setFrameShape(QFrame.Shape.NoFrame)
         format_switch_layout = QHBoxLayout(self.format_switch)
         format_switch_layout.setContentsMargins(0, 0, 0, 0)
         format_switch_layout.setSpacing(0)
@@ -534,7 +537,8 @@ class MainWindow(QMainWindow):
 
         self.help_button = QToolButton(self)
         self.help_button.setObjectName("HelpButton")
-        self.help_button.setText("?")
+        self.help_button.setIcon(line_icon("help"))
+        self.help_button.setIconSize(QSize(16, 16))
         self.help_button.setToolTip("Open Cookie Help Guide")
         self.help_button.setAccessibleName("Open Cookie Help Guide")
         self.help_button.clicked.connect(self._show_cookie_help)
@@ -1248,6 +1252,7 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(close_btn)
         layout.addLayout(btn_layout)
 
+        strip_native_frames(dialog)
         dialog.exec()
 
     def _show_history_dialog(self) -> None:

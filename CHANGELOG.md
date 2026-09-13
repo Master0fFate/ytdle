@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.4.0 - 2026-09-13
+
+### Desktop
+
+- Rebuilt the GUI as a hard-edged Angelcore workspace: square corners, mono type, Google Material outlined icons, and purple only on the primary action, focus, tabs, progress, and checked switches.
+- Removed the light-gray cages around fields and buttons. Idle fields use a one-sided hairline; Windows native white bevels are flattened.
+
+### Toolchain
+
+- Bundled FFmpeg updated to `2026-09-10-git-fd7c73d01e` (Gyan.dev full build).
+- Confirmed yt-dlp `2026.8.19`, yt-dlp-ejs `0.8.0`, and aria2c `1.37.0` are still the current upstream releases.
+
 ## 2.3.0 - 2026-08-22
 
 ### Added

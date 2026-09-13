@@ -74,29 +74,30 @@ class ToggleSwitch(QCheckBox):
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
 
         track_y = (self.height() - self.TRACK_HEIGHT) / 2.0
         track = QRectF(1.0, track_y, self.TRACK_WIDTH, self.TRACK_HEIGHT)
         if not self.isEnabled():
-            track_color = QColor("#18181b")
-            border_color = QColor("#27272a")
-            handle_color = QColor("#52525b")
-            text_color = QColor("#5f5f68")
+            track_color = QColor("#111111")
+            border_color = QColor("#2b2b2b")
+            handle_color = QColor("#737373")
+            text_color = QColor("#909090")
         elif self.isChecked():
             track_color = QColor("#7c3aed")
             border_color = QColor("#7c3aed")
-            handle_color = QColor("#fafafa")
-            text_color = QColor("#fafafa" if self._hovered else "#d4d4d8")
+            handle_color = QColor("#eeeeee")
+            text_color = QColor("#eeeeee")
         else:
-            track_color = QColor("#18181b" if not self._hovered else "#202024")
-            border_color = QColor("#3f3f46")
-            handle_color = QColor("#a1a1aa")
-            text_color = QColor("#fafafa" if self._hovered else "#a1a1aa")
+            track_color = QColor("#191919" if self._hovered else "#111111")
+            border_color = QColor("#2b2b2b")
+            handle_color = QColor("#909090")
+            text_color = QColor("#eeeeee" if self._hovered else "#909090")
 
         painter.setPen(QPen(border_color, 1.0))
         painter.setBrush(track_color)
-        painter.drawRoundedRect(track, self.TRACK_HEIGHT / 2.0, self.TRACK_HEIGHT / 2.0)
+        painter.drawRect(track)
 
         travel = self.TRACK_WIDTH - self.HANDLE_SIZE - 4.0
         handle_x = track.left() + 2.0 + travel * self._handle_position
@@ -108,16 +109,12 @@ class ToggleSwitch(QCheckBox):
         )
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(handle_color)
-        painter.drawEllipse(handle)
+        painter.drawRect(handle)
 
         if self.hasFocus():
-            painter.setPen(QPen(QColor("#a78bfa"), 1.0))
+            painter.setPen(QPen(QColor("#7c3aed"), 2.0))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(
-                track.adjusted(-1.0, -1.0, 1.0, 1.0),
-                self.TRACK_HEIGHT / 2.0,
-                self.TRACK_HEIGHT / 2.0,
-            )
+            painter.drawRect(track.adjusted(-1.0, -1.0, 1.0, 1.0))
 
         painter.setPen(text_color)
         text_rect = QRectF(

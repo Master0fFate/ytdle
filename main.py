@@ -24,11 +24,11 @@ def main() -> None:
 
         from PySide6.QtWidgets import QApplication
         from ui.main_window import MainWindow
-        from ui.styles import STYLESHEET
+        from ui.styles import apply_chrome
 
         setup_logging(verbose=False)
         app = QApplication(sys.argv)
-        app.setStyleSheet(STYLESHEET)
+        apply_chrome(app)
         window = MainWindow()
         if not window.dir_input.text().strip():
             window.dir_input.setText(window._default_download_dir())

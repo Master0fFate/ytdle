@@ -1,5 +1,7 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolButton, QWidget
+
+from ui.icons import line_icon
 
 
 class CustomTitleBar(QWidget):
@@ -25,7 +27,8 @@ class CustomTitleBar(QWidget):
 
         self.min_btn = QToolButton(self)
         self.min_btn.setObjectName("MinimizeButton")
-        self.min_btn.setText("—")
+        self.min_btn.setIcon(line_icon("minimize"))
+        self.min_btn.setIconSize(QSize(16, 16))
         self.min_btn.setToolTip("Minimize")
         self.min_btn.setAccessibleName("Minimize window")
         self.min_btn.clicked.connect(self.parent.showMinimized)
@@ -33,7 +36,8 @@ class CustomTitleBar(QWidget):
 
         self.close_btn = QToolButton(self)
         self.close_btn.setObjectName("CloseButton")
-        self.close_btn.setText("×")
+        self.close_btn.setIcon(line_icon("close"))
+        self.close_btn.setIconSize(QSize(16, 16))
         self.close_btn.setToolTip("Close")
         self.close_btn.setAccessibleName("Close window")
         self.close_btn.clicked.connect(self.parent.close)
