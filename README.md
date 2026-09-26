@@ -1,10 +1,14 @@
 # YTDLE Media Downloader
 
-YTDLE is a modern, cross-platform media downloader built with Python and PySide6 (Qt). It provides a user-friendly graphical interface for `yt-dlp`, allowing users to download videos and audio from thousands of supported sites including YouTube, Twitter, TikTok, and more.
+YTDLE is a modern, cross-platform media downloader built with Python and PySide6 (Qt). It provides a graphical interface for `yt-dlp`, allowing users to download videos and audio from thousands of supported sites including YouTube, Twitter, TikTok, and more.
+
+![YTDLE dark Material 3 Expressive-inspired desktop UI](docs/screenshots/ytdle-material3-dark.png)
+
+*Native Windows capture with a temporary, generic output path; no download was started.*
 
 ## Features
 
-- **Modern UI**: Clean, dark-themed interface designed with PySide6.
+- **Dark Material 3 Expressive-inspired UI**: Roboto type, pill-shaped filled fields with a purple focus line, tonal surfaces, and icon-only actions with tooltips and accessible names.
 - **Async Download Engine**: High-performance asyncio-based downloader with lower memory overhead and better concurrency.
 - **CLI Mode**: Full command-line interface for headless usage or scripting.
 - **Format Selection**: Easily switch between MP3 (Audio) and MP4 (Video) formats.
@@ -17,7 +21,7 @@ YTDLE is a modern, cross-platform media downloader built with Python and PySide6
 - **Playlist Support**: Option to download entire playlists or channels.
 - **Smart Naming**: Customizable output filename templates (e.g., Uploader - Title).
 - **Robust Error Handling**: Automatic retries and fallback logic for different formats.
-- **Logging**: Detailed file logging for troubleshooting.
+- **Logging**: Detailed file logging for troubleshooting; the on-screen log keeps only its latest 1,500 lines to cap UI memory.
 - **Download History**: Persistent SQLite-based history tracking with export and retry failed downloads.
 - **Network Detection**: Real-time network connectivity monitoring with manual check capability.
 - **Download Controls**: Pause, resume, skip, and cancel downloads with thread-safe controls.
@@ -51,12 +55,13 @@ YTDLE is a modern, cross-platform media downloader built with Python and PySide6
     ```bash
     pip install -r requirements-dev.txt
     python -m pytest
+    python -m ruff check .
     ```
 
 ## Usage
 
 ### Graphical Interface (GUI)
-Run `YTDLE.exe` or `python main.py` to launch the modern dark-themed GUI.
+Run `YTDLE.exe` or `python main.py` to launch the dark GUI. Hover over an icon to see its action, or use the keyboard: `Ctrl+Enter` starts, `Ctrl+L` focuses the link list, and `Esc` cancels. Format and setting choices keep visible labels.
 
 **New Options:**
 - **Async Mode**: Enable high-performance asyncio download engine (default: enabled)
@@ -137,40 +142,15 @@ YTDLE.exe history --status completed --limit 10 --output json
 
 ## Compiling to Executable
 
-To build a standalone `.exe` file for Windows, use the provided build script or run PyInstaller manually.
+For a release-grade Windows EXE, install `requirements.txt` and `requirements-dev.txt` in one Python environment, place the verified `ffmpeg.exe` and `aria2c.exe` in the project root, and make Node.js available on `PATH`. Then run:
 
-### Method 1: Automatic Build Script (Recommended)
-1.  Locate the `build.bat` file in the project root.
-2.  Double-click `build.bat`.
-3.  Select build type:
-    -   **Standard**: Smaller executable, requires external binaries
-    -   **Standalone**: Bundles FFmpeg for out-of-the-box usage
-    -   **Full Standalone**: Bundles both FFmpeg and Aria2c
-4.  The script will generate `YTDLE.exe` in the `dist` folder.
-
-### Method 2: Manual Compilation
-
-**Standard Build:**
 ```bash
-pyinstaller --console --onefile --name "YTDLE" --clean --collect-all yt_dlp main.py
+python build_release.py
 ```
 
-**Bundled Build (with FFmpeg):**
-```bash
-pyinstaller --console --onefile --name "YTDLE" --clean --collect-all yt_dlp --add-binary "ffmpeg.exe;." main.py
-```
+The script requires the icon, both tool binaries, Node.js, the third-party notices, and the bundled Roboto font/license. It packages `yt-dlp-ejs` with its Node runtime and writes `dist/YTDLE.exe`. It fails on missing assets instead of producing an incomplete release. See `BINARY_PROVENANCE.md` for verified binary sources and checksums. The EXE is local output and is ignored by Git.
 
-**Full Bundled Build (with FFmpeg and Aria2c):**
-```bash
-pyinstaller --console --onefile --name "YTDLE" --clean --collect-all yt_dlp --add-binary "ffmpeg.exe;." --add-binary "aria2c.exe;." main.py
-```
-
-### Note on External Binaries
-
-- **Standard Build**: The executable is smaller but requires `ffmpeg.exe` to be in the same folder or in your System PATH.
-- **Standalone Build**: The executable is larger but works out-of-the-box on any machine without extra setup.
-- **Aria2c**: Optional binary for multi-connection downloads. Place `aria2c.exe` alongside the executable or in PATH.
-- **Source Control**: `ffmpeg.exe` and `aria2c.exe` are intentionally ignored by Git. See `BINARY_PROVENANCE.md` for trusted sources, expected versions, and checksum guidance.
+`build.bat` still offers smaller development variants. These variants are **not** equivalent to the full release: if you use a custom/manual PyInstaller command, you must also include the EJS package/runtime and notices yourself.
 
 ## Project Structure
 
@@ -190,6 +170,8 @@ pyinstaller --console --onefile --name "YTDLE" --clean --collect-all yt_dlp --ad
 - `build_release.py`: Python release builder that includes local FFmpeg/aria2c when present.
 - `requirements.txt`: Production dependencies.
 - `requirements-dev.txt`: Development dependencies (testing, linting).
+- `assets/`: Vendored Roboto font and its OFL license for the dark interface.
+- `docs/screenshots/`: Captured application screenshots for documentation.
 - `BINARY_PROVENANCE.md`: Trusted binary source and verification notes.
 - `THIRD_PARTY_NOTICES.md`: Licenses and source links for bundled FFmpeg and aria2.
 - `CHANGELOG.md`: Versioned release notes.

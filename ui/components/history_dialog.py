@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.history import DownloadHistory
+from ui.icons import icon_action
 from ui.styles import strip_native_frames
 
 
@@ -83,24 +84,29 @@ class HistoryDialog(QDialog):
         button_layout.addStretch()
 
         self.export_failed_btn = QPushButton("Export Failed URLs", self)
+        icon_action(self.export_failed_btn, "download", "Export failed URLs")
         self.export_failed_btn.clicked.connect(self._export_failed_urls)
         self.export_failed_btn.setEnabled(False)
         button_layout.addWidget(self.export_failed_btn)
 
         self.retry_failed_btn = QPushButton("Retry Failed", self)
+        icon_action(self.retry_failed_btn, "resume", "Retry failed downloads")
         self.retry_failed_btn.clicked.connect(self._retry_failed)
         self.retry_failed_btn.setEnabled(False)
         button_layout.addWidget(self.retry_failed_btn)
 
         self.clear_completed_btn = QPushButton("Clear Completed", self)
+        icon_action(self.clear_completed_btn, "clear", "Clear completed history")
         self.clear_completed_btn.clicked.connect(self._clear_completed)
         button_layout.addWidget(self.clear_completed_btn)
 
         self.clear_failed_btn = QPushButton("Clear Failed", self)
+        icon_action(self.clear_failed_btn, "clear", "Clear failed history")
         self.clear_failed_btn.clicked.connect(self._clear_failed)
         button_layout.addWidget(self.clear_failed_btn)
 
         self.close_btn = QPushButton("Close", self)
+        icon_action(self.close_btn, "cancel", "Close history")
         self.close_btn.clicked.connect(self.accept)
         button_layout.addWidget(self.close_btn)
 

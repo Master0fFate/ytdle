@@ -10,7 +10,9 @@ class CustomTitleBar(QWidget):
     def __init__(self, parent):
         super().__init__(parent)
         self.setObjectName("TitleBar")
-        self.setFixedHeight(36)
+        # The styled window buttons are 40 px tall; keep their full hit targets
+        # inside the draggable title surface rather than clipping the top edge.
+        self.setFixedHeight(48)
         self.parent = parent
         self._start_pos = None
         self._is_dragging = False

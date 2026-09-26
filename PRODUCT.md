@@ -30,4 +30,4 @@ Avoid generic dark-card dashboards, vague "magic downloader" copy, hidden depend
 
 ## Accessibility & Inclusion
 
-Aim for readable dark-mode contrast, keyboard shortcuts for primary flows, clear focus states, text labels that do not rely on color alone, and reduced cognitive load for users who do not know the underlying tools.
+Aim for readable dark-mode contrast, keyboard shortcuts for primary flows, clear focus states, visible labels for choices and status, and named tooltips plus accessible names for icon-only actions. Do not rely on color alone. Reduce cognitive load for users who do not know the underlying tools.

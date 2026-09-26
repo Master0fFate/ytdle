@@ -24,6 +24,13 @@ YTDLE release executables aggregate the following independent command-line progr
 
 Exact package and executable checksums are recorded in `BINARY_PROVENANCE.md`.
 
+## Roboto
+
+- Project: https://github.com/google/fonts/tree/main/ofl/roboto
+- License: SIL Open Font License 1.1 (`assets/ROBOTO-OFL.txt`, bundled in release EXEs).
+- Use: variable Roboto font for desktop interface typography.
+- Vendored font SHA-256: `d7598e12c5dbef095ff8272cfc55da0250bd07fbdecbac8a530b9b277872a134`.
+
 ## Material Icons
 
 - Project: https://github.com/google/material-design-icons

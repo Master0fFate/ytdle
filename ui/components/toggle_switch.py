@@ -9,14 +9,16 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QCheckBox
 
+from ui.styles import COLORS
+
 
 class ToggleSwitch(QCheckBox):
     """Compact keyboard-accessible switch with one short, event-driven transition."""
 
-    TRACK_WIDTH = 32.0
-    TRACK_HEIGHT = 18.0
-    HANDLE_SIZE = 14.0
-    TEXT_GAP = 7
+    TRACK_WIDTH = 40.0
+    TRACK_HEIGHT = 24.0
+    HANDLE_SIZE = 16.0
+    TEXT_GAP = 8
 
     def __init__(self, text: str, parent=None):
         super().__init__(text, parent)
@@ -67,54 +69,49 @@ class ToggleSwitch(QCheckBox):
     def sizeHint(self) -> QSize:
         text_width = self.fontMetrics().horizontalAdvance(self.text())
         width = int(self.TRACK_WIDTH) + self.TEXT_GAP + text_width + 2
-        return QSize(width, max(22, self.fontMetrics().height() + 4))
+        return QSize(width, max(32, self.fontMetrics().height() + 8))
 
     def minimumSizeHint(self) -> QSize:
         return self.sizeHint()
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
 
         track_y = (self.height() - self.TRACK_HEIGHT) / 2.0
         track = QRectF(1.0, track_y, self.TRACK_WIDTH, self.TRACK_HEIGHT)
         if not self.isEnabled():
-            track_color = QColor("#111111")
-            border_color = QColor("#2b2b2b")
-            handle_color = QColor("#737373")
-            text_color = QColor("#909090")
+            track_color = QColor(COLORS["surface"])
+            border_color = QColor(COLORS["rule"])
+            handle_color = QColor(COLORS["muted"])
+            text_color = QColor(COLORS["muted"])
         elif self.isChecked():
-            track_color = QColor("#7c3aed")
-            border_color = QColor("#7c3aed")
-            handle_color = QColor("#eeeeee")
-            text_color = QColor("#eeeeee")
+            track_color = QColor(COLORS["accent"])
+            border_color = QColor(COLORS["accent"])
+            handle_color = QColor(COLORS["strong"])
+            text_color = QColor(COLORS["text"])
         else:
-            track_color = QColor("#191919" if self._hovered else "#111111")
-            border_color = QColor("#2b2b2b")
-            handle_color = QColor("#909090")
-            text_color = QColor("#eeeeee" if self._hovered else "#909090")
+            track_color = QColor(COLORS["raised"] if self._hovered else COLORS["container"])
+            border_color = QColor(COLORS["outline"])
+            handle_color = QColor(COLORS["text"])
+            text_color = QColor(COLORS["text"])
 
         painter.setPen(QPen(border_color, 1.0))
         painter.setBrush(track_color)
-        painter.drawRect(track)
+        painter.drawRoundedRect(track, 12.0, 12.0)
 
-        travel = self.TRACK_WIDTH - self.HANDLE_SIZE - 4.0
-        handle_x = track.left() + 2.0 + travel * self._handle_position
-        handle = QRectF(
-            handle_x,
-            track_y + 2.0,
-            self.HANDLE_SIZE,
-            self.HANDLE_SIZE,
-        )
+        travel = self.TRACK_WIDTH - self.HANDLE_SIZE - 8.0
+        handle_x = track.left() + 4.0 + travel * self._handle_position
+        handle = QRectF(handle_x, track_y + 4.0, self.HANDLE_SIZE, self.HANDLE_SIZE)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(handle_color)
-        painter.drawRect(handle)
+        painter.drawEllipse(handle)
 
         if self.hasFocus():
-            painter.setPen(QPen(QColor("#7c3aed"), 2.0))
+            painter.setPen(QPen(QColor(COLORS["focus"]), 2.0))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(track.adjusted(-1.0, -1.0, 1.0, 1.0))
+            painter.drawRoundedRect(track.adjusted(-2.0, -2.0, 2.0, 2.0), 14.0, 14.0)
 
         painter.setPen(text_color)
         text_rect = QRectF(

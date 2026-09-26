@@ -1,5 +1,8 @@
 import pytest
 from PySide6.QtCore import QPoint, QRect, QSettings
+from PySide6.QtWidgets import QApplication
+
+from ui.styles import apply_chrome
 
 import ui.main_window as main_window
 
@@ -160,9 +163,15 @@ def test_queue_cache_reuses_analysis_until_exact_text_changes(window, monkeypatc
 
 
 def test_compact_layout_uses_one_format_switch_without_overlap(window, qtbot):
-    window.resize(760, 600)
+    apply_chrome(QApplication.instance())
+    window.resize(760, 560)
     window.show()
     qtbot.wait(20)
+
+    for button in (window.title_bar.min_btn, window.title_bar.close_btn):
+        assert window.title_bar.rect().contains(button.geometry())
+        assert button.geometry().top() >= 4
+        assert window.title_bar.height() - button.geometry().bottom() >= 4
 
     assert window.mp3_btn.parent() is window.format_switch
     assert window.mp4_btn.parent() is window.format_switch
@@ -199,6 +208,42 @@ def test_compact_layout_uses_one_format_switch_without_overlap(window, qtbot):
         window.start_button.size(),
     )
     assert not network_rect.intersects(start_rect)
+    import_center = window.import_urls_button.mapTo(window, window.import_urls_button.rect().center()).y()
+    browse_center = window.browse_button.mapTo(window, window.browse_button.rect().center()).y()
+    assert abs(import_center - browse_center) <= 1
+    history_center = window.history_button.mapTo(window, window.history_button.rect().center()).y()
+    start_center = window.start_button.mapTo(window, window.start_button.rect().center()).y()
+    assert abs(history_center - start_center) <= 1
+    assert window.start_button.size() == window.cancel_button.size()
+    url_rect = QRect(window.url_input.mapTo(window, QPoint(0, 0)), window.url_input.size())
+    format_rect = QRect(window.format_switch.mapTo(window, QPoint(0, 0)), window.format_switch.size())
+    assert not url_rect.intersects(format_rect)
+    assert window.start_button.geometry().bottom() < window.progress_bar.mapTo(
+        window, QPoint(0, 0)
+    ).y()
+
+
+def test_icon_actions_remain_named_and_discoverable(window):
+    for button in (
+        window.import_urls_button, window.clean_urls_button, window.clear_urls_button,
+        window.history_button, window.check_network_button, window.start_button,
+        window.cancel_button, window.pause_button, window.skip_button,
+    ):
+        assert not button.text()
+        assert not button.icon().isNull()
+        assert button.accessibleName()
+        assert button.toolTip()
+    assert window.mp3_btn.text() == "MP3"
+    assert window.mp4_btn.text() == "MP4"
+    assert window.cookie_file_browse.accessibleName() == "Browse for cookie file"
+
+
+def test_activity_view_is_bounded_while_persistent_log_is_unchanged(window):
+    for index in range(1600):
+        window.append_log(f"Entry {index}")
+    assert window.log_output.document().blockCount() == 1500
+    assert "Entry 0" not in window.log_output.toPlainText()
+    assert "Entry 1599" in window.log_output.toPlainText()
 
 
 def test_settings_writes_are_coalesced_while_typing(window, qtbot):

@@ -10,6 +10,10 @@ YTDLE can bundle `ffmpeg.exe` and `aria2c.exe` for Windows release builds, but t
 | aria2c | `1.37.0` | https://github.com/aria2/aria2/releases/tag/release-1.37.0 | Official signed aria2 release and newest upstream release as of 2026-07-10. Windows 64-bit archive SHA-256: `67d015301eef0b612191212d564c5bb0a14b5b9c4796b76454276a4d28d9b288`. Extracted `aria2c.exe` SHA-256: `be2099c214f63a3cb4954b09a0becd6e2e34660b886d4c898d260febfe9d70c2`. The refreshed official binary is byte-identical to the previous local copy. |
 | Node.js | `22.22.2` | https://nodejs.org/dist/v22.22.2/ | Official Windows x64 Node.js runtime bundled for `yt-dlp-ejs`. Extracted `node.exe` SHA-256: `ae1a50511be58e987483fdbc12125407443926d2d394669ade2352776e920dd3`. |
 
+## Update status (2026-09-27)
+
+The verified binaries listed above are the versions inside the 2.6.0 EXE. Gyan.dev published a newer FFmpeg git archive on 2026-09-24, and Node.js lists a newer v22 maintenance release and v24 LTS release. The attempted FFmpeg archive download stalled before verification, so **no partial or unchecked binary replaced the bundled copy**. aria2c 1.37.0 remains the latest official release. Python package requirements were updated separately; the next binary refresh must download, checksum, test, and update this record before packaging.
+
 ## Release policy
 
 - Keep `ffmpeg.exe` and `aria2c.exe` beside `main.py` for source builds or beside `YTDLE.exe` for standard release builds. The release builder packages the Node.js runtime found on `PATH` into the executable.

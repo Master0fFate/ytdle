@@ -36,7 +36,7 @@ from core.utils import open_in_file_manager
 from ui.components import HistoryDialog
 from ui.components.title_bar import CustomTitleBar
 from ui.components.toggle_switch import ToggleSwitch
-from ui.icons import line_icon
+from ui.icons import icon_action, line_icon
 from ui.styles import strip_native_frames
 from ui.url_queue import (
     QueueAnalysis,
@@ -121,8 +121,8 @@ class MainWindow(QMainWindow):
 
         download_tab = QWidget()
         download_layout = QVBoxLayout(download_tab)
-        download_layout.setContentsMargins(8, 8, 8, 8)
-        download_layout.setSpacing(5)
+        download_layout.setContentsMargins(8, 4, 8, 4)
+        download_layout.setSpacing(3)
 
         dir_row = QHBoxLayout()
         dir_label = QLabel("Directory:", self)
@@ -182,23 +182,26 @@ class MainWindow(QMainWindow):
         self.import_urls_button = QPushButton("Import List", self)
         self.import_urls_button.setObjectName("ImportUrlsButton")
         self.import_urls_button.setToolTip("Add links from a UTF-8 text file")
+        icon_action(self.import_urls_button, "import", "Import URL list")
         self.import_urls_button.clicked.connect(self._import_url_list)
-        url_header.addWidget(self.import_urls_button, 0)
+        dir_row.addWidget(self.import_urls_button, 0)
 
         self.clean_urls_button = QPushButton("Clean Queue", self)
         self.clean_urls_button.setObjectName("CleanUrlsButton")
         self.clean_urls_button.setToolTip(
             "Remove duplicate, invalid, and comment lines"
         )
+        icon_action(self.clean_urls_button, "clean", "Clean URL queue")
         self.clean_urls_button.clicked.connect(self._clean_url_queue)
         self.clean_urls_button.setEnabled(False)
-        url_header.addWidget(self.clean_urls_button, 0)
+        dir_row.addWidget(self.clean_urls_button, 0)
 
         self.clear_urls_button = QPushButton("Clear URLs", self)
         self.clear_urls_button.setObjectName("ClearUrlsButton")
         self.clear_urls_button.setToolTip("Clear the current URL queue")
+        icon_action(self.clear_urls_button, "clear", "Clear URL queue")
         self.clear_urls_button.clicked.connect(self._clear_urls)
-        url_header.addWidget(self.clear_urls_button, 0)
+        dir_row.addWidget(self.clear_urls_button, 0)
         download_layout.addLayout(url_header)
 
         self.url_input = QPlainTextEdit(self)
@@ -207,7 +210,7 @@ class MainWindow(QMainWindow):
         )
         self.url_input.setTabChangesFocus(True)
         self.url_input.setAccessibleName("Download URLs")
-        self.url_input.setMinimumHeight(88)
+        self.url_input.setMinimumHeight(64)
         self.url_input.setToolTip(
             "Paste one URL per line. You can also drag & drop links here."
         )
@@ -349,12 +352,13 @@ class MainWindow(QMainWindow):
         opt_row.setSpacing(4)
         download_layout.addLayout(opt_row)
 
-        actions_row = QHBoxLayout()
+        transport_row = QHBoxLayout()
         self.history_button = QPushButton("History", self)
         self.history_button.setObjectName("HistoryButton")
         self.history_button.setToolTip(
             "View download history and manage failed downloads"
         )
+        icon_action(self.history_button, "history", "Download history")
         self.history_button.clicked.connect(self._show_history_dialog)
 
         self.network_label = QLabel("Network: Checking...", self)
@@ -367,34 +371,34 @@ class MainWindow(QMainWindow):
         self.check_network_button = QPushButton("Check Network", self)
         self.check_network_button.setObjectName("CheckNetworkButton")
         self.check_network_button.setToolTip("Manually check internet connection")
+        icon_action(self.check_network_button, "network", "Check network connection")
         self.check_network_button.clicked.connect(self._check_network_status)
 
-        actions_row.addWidget(self.history_button, 0)
-        actions_row.addWidget(self.network_label, 0)
-        actions_row.addWidget(self.check_network_button, 0)
-        actions_row.addStretch(1)
-        actions_row.setSpacing(4)
-        download_layout.addLayout(actions_row)
-
-        transport_row = QHBoxLayout()
+        transport_row.addWidget(self.history_button, 0)
+        transport_row.addWidget(self.network_label, 0)
+        transport_row.addWidget(self.check_network_button, 0)
         transport_row.addStretch(1)
 
         self.start_button = QPushButton("Start Download", self)
         self.start_button.setObjectName("DownloadButton")
-        self.start_button.setToolTip("Start downloading all URLs in the list")
+        self.start_button.setToolTip("Start downloading all URLs in the list (Ctrl+Enter)")
+        icon_action(self.start_button, "download", "Start download", primary=True)
         self.cancel_button = QPushButton("Cancel", self)
         self.cancel_button.setObjectName("CancelButton")
         self.cancel_button.setToolTip(
             "Request a safe stop after the current file finishes processing"
         )
+        icon_action(self.cancel_button, "cancel", "Cancel downloads")
         self.cancel_button.setEnabled(False)
         self.pause_button = QPushButton("Pause", self)
         self.pause_button.setObjectName("PauseButton")
         self.pause_button.setToolTip("Pause the current download")
+        icon_action(self.pause_button, "pause", "Pause download")
         self.pause_button.setEnabled(False)
         self.skip_button = QPushButton("Skip", self)
         self.skip_button.setObjectName("SkipButton")
         self.skip_button.setToolTip("Skip the current download and move to the next")
+        icon_action(self.skip_button, "skip", "Skip current download")
         self.skip_button.setEnabled(False)
         transport_row.addWidget(self.start_button, 0)
         transport_row.addWidget(self.cancel_button, 0)
@@ -517,6 +521,7 @@ class MainWindow(QMainWindow):
         self.cookie_file_browse.setObjectName("CookieBrowseButton")
         self.cookie_file_browse.setIcon(line_icon("file"))
         self.cookie_file_browse.setToolTip("Browse for cookie file")
+        self.cookie_file_browse.setAccessibleName("Browse for cookie file")
         self.cookie_file_browse.clicked.connect(self._choose_cookie_file)
         file_group_layout.addWidget(cookie_file_label, 0)
         file_group_layout.addWidget(self.cookie_file_input, 1)
@@ -566,8 +571,10 @@ class MainWindow(QMainWindow):
         self.log_output = QPlainTextEdit(self)
         self.log_output.setObjectName("LogOutput")
         self.log_output.setReadOnly(True)
+        # UI history is a view, not the persistent log: bound its document size.
+        self.log_output.document().setMaximumBlockCount(1500)
         self.log_output.setAccessibleName("Download activity log")
-        self.log_output.setMinimumHeight(104)
+        self.log_output.setMinimumHeight(76)
         self.log_output.setPlaceholderText("Status and activity will appear here.")
         self.log_output.setToolTip(
             "Toolchain, network, download status, progress, and error output."
@@ -606,8 +613,9 @@ class MainWindow(QMainWindow):
         self._update_queue_summary()
         self._set_status("Ready")
 
-        self.setMinimumSize(760, 600)
-        self.resize(920, 700)
+        self.setMinimumSize(760, 560)
+        self.resize(920, 620)
+        self.url_input.setFocus(Qt.FocusReason.OtherFocusReason)
 
         self._check_network_status()
 
@@ -1374,12 +1382,14 @@ class MainWindow(QMainWindow):
 
         if worker.is_paused():
             worker.resume()
-            self.pause_button.setText("Pause")
+            self.pause_button.setIcon(line_icon("pause"))
+            self.pause_button.setAccessibleName("Pause download")
             self.pause_button.setToolTip("Pause the current download")
             self.append_log("Download resumed")
         else:
             worker.pause()
-            self.pause_button.setText("Resume")
+            self.pause_button.setIcon(line_icon("resume"))
+            self.pause_button.setAccessibleName("Resume download")
             self.pause_button.setToolTip("Resume the paused download")
             self.append_log("Download paused")
 

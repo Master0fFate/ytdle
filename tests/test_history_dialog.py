@@ -1,9 +1,11 @@
 from collections import Counter
 
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtCore import QPoint
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from core.history import HistoryRecord
 from ui.components.history_dialog import HistoryDialog
+from ui.styles import apply_chrome
 
 
 class FakeHistory:
@@ -79,6 +81,20 @@ def test_initial_load_queries_once_and_filter_keeps_all_table_rows(qtbot):
     dialog.filter_input.clear()
     assert _visible_rows(dialog.completed_table) == completed_count
     assert history.calls == Counter({"get_all": 1})
+
+
+def test_history_tabs_have_space_before_the_table(qtbot):
+    apply_chrome(QApplication.instance())
+    dialog = HistoryDialog(FakeHistory(_records(100)))
+    qtbot.addWidget(dialog)
+    dialog.show()
+    qtbot.wait(20)
+
+    tab_bar = dialog.tab_widget.tabBar()
+    tab_bottom = tab_bar.mapTo(dialog, QPoint(0, tab_bar.height())).y()
+    table_top = dialog.completed_table.mapTo(dialog, QPoint(0, 0)).y()
+    assert table_top - tab_bottom >= 10
+    assert dialog.completed_table.verticalScrollBar().isVisible()
 
 
 def test_clear_refreshes_only_the_changed_history_partition(

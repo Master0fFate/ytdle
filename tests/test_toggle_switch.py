@@ -8,7 +8,7 @@ def test_toggle_switch_is_compact_keyboard_accessible_and_animated(qtbot):
     qtbot.addWidget(switch)
     switch.show()
 
-    assert switch.sizeHint().height() == 22
+    assert switch.sizeHint().height() == 32
     assert not switch.isChecked()
 
     qtbot.mouseClick(switch, Qt.MouseButton.LeftButton)

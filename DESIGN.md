@@ -1,33 +1,23 @@
-# YTDLE Design System
+# YTDLE design system
 
 ## Direction
 
-YTDLE is an **Operate** surface: compact, calm, and task-first. Its visual language follows Angelcore reference-monochrome for a hard-edged desktop workspace, not a dashboard and not a fake terminal.
+YTDLE is a dark, task-first desktop utility. It adapts **Material 3 Expressive** principles to PySide6/Qt Fusion widgets; it is not the Android Material component library. Keep the existing royal-purple accent (`#7c3aed`). Use shape, tonal surfaces, and one clear primary action for hierarchy—not bright frames around every component.
 
-## Visual Rules
+## Color, type, and shape
 
-- Near-black field (`#090909`) with square corners (`border-radius: 0`) and dim `#2b2b2b` hairlines. Do not cage every control in a light-gray box.
-- Interface type is mono: Consolas / Cascadia Mono / Courier New.
-- Royal purple (`#7c3aed`) is the only hue accent, as a documented exception to reference-monochrome.
-- Reserve purple for the primary action, focus, selected tab, progress chunk, and enabled switches.
-- Do not use decorative background images, dither wallpaper, gradients, glows, glass, or tinted card stacks.
-- Status information belongs in the activity console as words (`[ok]`, `[!]`, Ready), not color-only dots.
+- Dark surface `#101018`, low container `#191921`, container `#25242e`, raised container `#302f3a`; white-on-dark text `#e8e6f0` and muted text `#aaa7b7`.
+- Purple marks the download action, selected segment/tab, active switch, progress, and focus indicator. Disabled controls remain legible and muted.
+- Bundle Roboto for interface type; keep Consolas/Cascadia Mono for the activity log. Ship its OFL license with the EXE.
+- Inputs are filled **pills on both ends**, not white-outlined fields. Their quiet bottom line becomes purple when focused. Group containers use tonal fills without decorative borders. Buttons use circular or pill shapes with distinct primary size.
+- Hover, pressed, focus, checked, and disabled states change color, not control geometry. Keyboard focus remains visible. Scrollbars use a quiet track and rounded tonal thumb with clearer hover/drag states.
 
-## Components
+## Controls and workflow
 
-- Inputs and secondary buttons use compact 22–26 px visual heights.
-- MP3/MP4 is one joined segmented control, never two detached buttons.
-- Binary settings use compact square switches.
-- Tool buttons use Google Material Icons Outlined, recolored to the mono ink scale.
-- Hover, focus, pressed, checked, and disabled states must not change layout geometry.
+- Icon-only actions include a hover tooltip and accessible name. This applies to queue tools, history, network, transport, folder, and help actions. Keep the MP3/MP4 labels, form labels, switch labels, status words, and tab labels: icons alone cannot communicate those choices or results.
+- Download is purple and the same 40 px hit target as adjacent transport actions. Secondary icon actions use the same circle size. Keep the MP3/MP4 selection joined, and keep switches keyboard-operable.
+- Preserve Download/Cookies tabs, input validation, toolchain/network diagnostics, history, pause/resume/skip/cancel, and CLI behavior.
+- Queue tools share the directory row. History and network share the transport row with download controls. The 48 px title bar contains its 40 px window buttons; History tabs leave 12 px before the table. At 760 × 560, the queue, format, actions, and bottom activity log must not overlap. The normal canvas is 920 × 620. Check both sizes and the Cookies/History views.
+- The bottom log is a **bounded view** (last 1,500 lines); the file log and database history remain separate and persistent.
 
-## Layout
-
-- Preserve the Download and Cookies workflow and all existing controls.
-- Utility actions and download transport controls occupy separate rows so narrow windows cannot collide.
-- The default canvas is 920 × 700 logical pixels; 760 × 600 remains usable without overlap.
-- Toolchain, network, readiness, progress notes, and errors flow into the bottom console.
-
-## Typography
-
-Use Consolas / Cascadia Mono / Courier New for interface text and the activity console.
+Screenshot: [dark desktop view](docs/screenshots/ytdle-material3-dark.png).

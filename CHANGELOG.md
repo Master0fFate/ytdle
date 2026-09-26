@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.6.0 - 2026-09-27
+
+### Desktop polish
+
+- Made the title bar tall enough for its window buttons, so their circular backgrounds and full click targets stay inside the window.
+- Reworked vertical and horizontal scrollbars with quiet tracks, rounded thumbs, and clearer hover/drag feedback instead of bright native handles.
+- Put a little more room between the Completed/Failed tabs and the history table.
+- Updated the desktop screenshot to show the corrected layout.
+
+## 2.5.0 - 2026-09-27 (local build; changes included in 2.6.0)
+
+### Desktop
+
+- Replaced the hard-edged theme with a dark Qt adaptation of Material 3 Expressive: tonal surfaces, Roboto, rounded filled fields with a focus underline, joined format selection, and purple primary action. The accent remains `#7c3aed`.
+- Queue, history, network, and transport actions are icon-only with tooltips and accessible names; settings and status retain visible words.
+- Moved queue actions beside the directory controls, combined utility and transport actions into one row, and matched the download button size to its neighbors. Verified 920 × 620 and 760 × 560 layouts without control overlap.
+- Limited the on-screen activity document to its latest 1,500 lines; the file log and SQLite history remain unchanged.
+
+### Dependencies and release
+
+- Raised the PySide6 minimum to `6.11.2`, pytest to `9.1.1`, Ruff to `0.16.9`, and PyInstaller to `6.22.3`; recorded the project's existing error-check rule set in `ruff.toml`. yt-dlp `2026.8.19`, yt-dlp-ejs `0.8.0`, and pytest-qt `4.5.0` were already current on the package index at build time.
+- Included the Roboto font and its SIL OFL license in release builds, with a fresh desktop screenshot in the README.
+- Kept the previously verified FFmpeg/Node.js binaries after a newer FFmpeg archive download stalled; see `BINARY_PROVENANCE.md` for the external-binary update status.
+
 ## 2.4.0 - 2026-09-13
 
 ### Desktop

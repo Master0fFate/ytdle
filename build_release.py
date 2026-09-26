@@ -10,7 +10,7 @@ import subprocess
 import sys
 from typing import List, Optional
 
-VERSION = "2.4.0"
+VERSION = "2.6.0"
 AUTHOR = "Master0fFate"
 DESCRIPTION = (
     "YTDLE Media Downloader - Modern GUI/CLI downloader built with Python and PySide6"
@@ -23,6 +23,8 @@ ICON_FILE = ROOT_DIR / "icon.ico"
 FFMPEG_FILE = ROOT_DIR / "ffmpeg.exe"
 ARIA2_FILE = ROOT_DIR / "aria2c.exe"
 THIRD_PARTY_NOTICES = ROOT_DIR / "THIRD_PARTY_NOTICES.md"
+ROBOTO_FONT = ROOT_DIR / "assets" / "Roboto.ttf"
+ROBOTO_LICENSE = ROOT_DIR / "assets" / "ROBOTO-OFL.txt"
 
 
 def _resolve_node_path() -> Optional[str]:
@@ -61,7 +63,10 @@ def _clean_build_artifacts() -> None:
 def build_exe():
     """Build the executable with PyInstaller."""
 
-    required_assets = (ICON_FILE, FFMPEG_FILE, ARIA2_FILE, THIRD_PARTY_NOTICES)
+    required_assets = (
+        ICON_FILE, FFMPEG_FILE, ARIA2_FILE, THIRD_PARTY_NOTICES,
+        ROBOTO_FONT, ROBOTO_LICENSE,
+    )
     missing_assets = [path.name for path in required_assets if not path.is_file()]
     node_path = _resolve_node_path()
     if not node_path:
@@ -142,6 +147,10 @@ def build_exe():
         f"{node_path};.",
         "--add-data",
         f"{THIRD_PARTY_NOTICES};.",
+        "--add-data",
+        f"{ROBOTO_FONT};assets",
+        "--add-data",
+        f"{ROBOTO_LICENSE};assets",
         "--log-level",
         "WARN",
         str(ENTRY_POINT),
