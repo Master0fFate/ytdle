@@ -55,7 +55,7 @@ def test_cookie_file_source_is_exclusive(window, tmp_path):
     cookie_file = tmp_path / "cookies.txt"
     cookie_file.write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
 
-    window.browser_combo.setCurrentText("Cookie File (Fallback)")
+    window._select_cookie_source("Cookie File (Fallback)")
     window.cookie_file_input.setText(str(cookie_file))
 
     from_browser, cookies, logs = window._collect_cookie_settings()
@@ -66,7 +66,7 @@ def test_cookie_file_source_is_exclusive(window, tmp_path):
 
 
 def test_browser_source_ignores_cookie_file(window, tmp_path):
-    window.browser_combo.setCurrentText("chrome")
+    window._select_cookie_source("chrome")
     window.cookie_file_input.setText(str(tmp_path / "cookies.txt"))
 
     from_browser, cookies, logs = window._collect_cookie_settings()
@@ -77,7 +77,7 @@ def test_browser_source_ignores_cookie_file(window, tmp_path):
 
 
 def test_fallback_without_file_warns(window):
-    window.browser_combo.setCurrentText("Cookie File (Fallback)")
+    window._select_cookie_source("Cookie File (Fallback)")
     window.cookie_file_input.setText("")
 
     from_browser, cookies, logs = window._collect_cookie_settings()
@@ -88,7 +88,7 @@ def test_fallback_without_file_warns(window):
 
 
 def test_fallback_with_missing_file_warns_but_sends_path(window, tmp_path):
-    window.browser_combo.setCurrentText("Cookie File (Fallback)")
+    window._select_cookie_source("Cookie File (Fallback)")
     window.cookie_file_input.setText(str(tmp_path / "missing.txt"))
 
     from_browser, cookies, logs = window._collect_cookie_settings()
@@ -99,7 +99,7 @@ def test_fallback_with_missing_file_warns_but_sends_path(window, tmp_path):
 
 
 def test_none_sends_no_cookies_even_with_file_set(window, tmp_path):
-    window.browser_combo.setCurrentText("None")
+    window._select_cookie_source("None")
     window.cookie_file_input.setText(str(tmp_path / "cookies.txt"))
 
     from_browser, cookies, logs = window._collect_cookie_settings()
@@ -116,7 +116,7 @@ def test_legacy_config_migrates_to_cookie_file_source(make_window, tmp_path):
 
     widget = make_window(settings)
 
-    assert widget.browser_combo.currentText() == "Cookie File (Fallback)"
+    assert widget._cookie_source() == "Cookie File (Fallback)"
     assert widget.cookie_file_input.text() == "C:/cookies/exported.txt"
 
 
@@ -128,7 +128,7 @@ def test_saved_browser_source_is_restored(make_window, tmp_path):
 
     widget = make_window(settings)
 
-    assert widget.browser_combo.currentText() == "firefox"
+    assert widget._cookie_source() == "firefox"
     assert widget.profile_input.isEnabled()
 
 
@@ -141,23 +141,23 @@ def test_browse_auto_selects_fallback_from_none(window, monkeypatch, tmp_path):
         lambda *_args: (str(cookie_file), ""),
     )
 
-    assert window.browser_combo.currentText() == "None"
+    assert window._cookie_source() == "None"
     window._choose_cookie_file()
 
-    assert window.browser_combo.currentText() == "Cookie File (Fallback)"
+    assert window._cookie_source() == "Cookie File (Fallback)"
     assert window.cookie_file_input.text() == str(cookie_file)
 
 
 def test_browser_fields_disabled_for_non_browser_sources(window):
-    window.browser_combo.setCurrentText("Cookie File (Fallback)")
+    window._select_cookie_source("Cookie File (Fallback)")
     assert not window.profile_input.isEnabled()
     assert not window.keyring_input.isEnabled()
     assert not window.container_input.isEnabled()
 
-    window.browser_combo.setCurrentText("None")
+    window._select_cookie_source("None")
     assert not window.profile_input.isEnabled()
 
-    window.browser_combo.setCurrentText("chrome")
+    window._select_cookie_source("chrome")
     assert window.profile_input.isEnabled()
     assert window.keyring_input.isEnabled()
     assert window.container_input.isEnabled()

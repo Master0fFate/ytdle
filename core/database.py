@@ -295,7 +295,9 @@ class DatabaseManager:
 
             # Backup original JSON
             backup_path = json_path.with_suffix(".json.backup")
-            json_path.rename(backup_path)
+            # replace(), not rename(): on Windows rename fails if a backup exists,
+            # which left the JSON in place and re-imported it on every launch.
+            json_path.replace(backup_path)
             logger.info(f"Backed up original JSON to {backup_path}")
 
             return migrated
@@ -325,12 +327,14 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.execute("""
                 INSERT INTO history
-                (url, title, format, quality, output_path, success,
+                (url, title, format, quality, timestamp, output_path, success,
                  error_message, retry_count, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                url, title, format, quality, output_path, success,
-                error_message, retry_count, json.dumps(metadata or {})
+                # Local time, like migrated rows; SQLite's CURRENT_TIMESTAMP is UTC.
+                url, title, format, quality, datetime.now().isoformat(timespec="seconds"),
+                output_path, success, error_message, retry_count,
+                json.dumps(metadata or {})
             ))
             return cursor.lastrowid
 

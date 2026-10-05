@@ -2,10 +2,40 @@
 
 from dataclasses import dataclass
 from typing import Iterable, Optional
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 
 SUPPORTED_URL_SCHEMES = frozenset({"http", "https"})
+_YOUTUBE_HOSTS = frozenset(
+    {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}
+)
+
+
+def queue_key(url: str) -> str:
+    """Identity used for de-duplication.
+
+    YouTube shares one video under many links (youtu.be, watch?v=, tracking
+    parameters), so those compare by video id. A link that also names a
+    playlist keeps it: with "Whole playlist" on it downloads more than the
+    video. Everything else compares as typed.
+    """
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+    except ValueError:
+        return url
+    video = ""
+    if host == "youtu.be":
+        video = parts.path.strip("/").split("/")[0]
+    elif host in _YOUTUBE_HOSTS:
+        if parts.path == "/watch":
+            video = parse_qs(parts.query).get("v", [""])[0]
+        elif parts.path.startswith(("/shorts/", "/live/")):
+            video = parts.path.split("/")[2]
+    if not video:
+        return url
+    playlist = parse_qs(parts.query).get("list", [""])[0]
+    return f"youtube:{video}" + (f"|list:{playlist}" if playlist else "")
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,15 +92,20 @@ def analyze_url_queue(text: str) -> QueueAnalysis:
             comment_count += 1
             continue
 
-        if value in seen:
-            duplicate_count += 1
-            continue
         reason = _invalid_url_reason(value)
         if reason:
-            invalid_entries.append(InvalidQueueEntry(line_number, value, reason))
+            if value in seen:
+                duplicate_count += 1
+            else:
+                seen.add(value)
+                invalid_entries.append(InvalidQueueEntry(line_number, value, reason))
             continue
 
-        seen.add(value)
+        key = queue_key(value)
+        if key in seen:
+            duplicate_count += 1
+            continue
+        seen.add(key)
         urls.append(value)
 
     return QueueAnalysis(
@@ -91,15 +126,16 @@ def merge_url_queue(
     incoming = analyze_url_queue("\n".join(incoming_texts))
     if existing_analysis is None:
         existing_analysis = analyze_url_queue(existing_text)
-    existing_urls = set(existing_analysis.urls)
+    existing_keys = {queue_key(url) for url in existing_analysis.urls}
     added_urls: list[str] = []
     duplicate_count = incoming.duplicate_count
 
     for url in incoming.urls:
-        if url in existing_urls:
+        key = queue_key(url)
+        if key in existing_keys:
             duplicate_count += 1
             continue
-        existing_urls.add(url)
+        existing_keys.add(key)
         added_urls.append(url)
 
     if added_urls:

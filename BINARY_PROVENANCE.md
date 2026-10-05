@@ -6,13 +6,13 @@ YTDLE can bundle `ffmpeg.exe` and `aria2c.exe` for Windows release builds, but t
 
 | Tool | Expected version | Source | Notes |
 | --- | --- | --- | --- |
-| FFmpeg | `2026-09-10-git-fd7c73d01e` | https://www.gyan.dev/ffmpeg/builds/ffmpeg-git-full.7z | Gyan.dev Windows 64-bit static GPLv3 full build, linked by FFmpeg's official download page. Archive SHA-256 on 2026-09-13: `79c5f59774797650770a8de0d85a20f0b49884b84929a4491e925f1f1591d572`. Extracted `ffmpeg.exe` SHA-256: `ffad32848c51c612a2264efe3c42a4a625cae1607869f5a0c58050b0ec21428a`. Source commit: https://github.com/FFmpeg/FFmpeg/commit/fd7c73d01e. |
-| aria2c | `1.37.0` | https://github.com/aria2/aria2/releases/tag/release-1.37.0 | Official signed aria2 release and newest upstream release as of 2026-07-10. Windows 64-bit archive SHA-256: `67d015301eef0b612191212d564c5bb0a14b5b9c4796b76454276a4d28d9b288`. Extracted `aria2c.exe` SHA-256: `be2099c214f63a3cb4954b09a0becd6e2e34660b886d4c898d260febfe9d70c2`. The refreshed official binary is byte-identical to the previous local copy. |
+| FFmpeg | `2026-10-01-git-0b01ed76aa` | https://www.gyan.dev/ffmpeg/builds/ffmpeg-git-full.7z | Gyan.dev Windows 64-bit static GPLv3 full build, linked by FFmpeg's official download page. Archive SHA-256 on 2026-10-05: `da89007b937a103b0d8b5591f82116d0f5d01d6efd284a9cbdda7eb103a3e081` (matches Gyan.dev's published `.sha256`). Extracted `ffmpeg.exe` SHA-256: `584d65c96d3a8f5e4d70d23ba7bb555ca6b267ba3f453046c4ed9e0c97e74fac`. Smoke-tested MP3 (libmp3lame) and H.264 (libx264) encodes. Source commit: https://github.com/FFmpeg/FFmpeg/commit/0b01ed76aa. |
+| aria2c | `1.37.0` | https://github.com/aria2/aria2/releases/tag/release-1.37.0 | Official signed aria2 release and still the newest upstream release on 2026-10-05. Windows 64-bit archive SHA-256: `67d015301eef0b612191212d564c5bb0a14b5b9c4796b76454276a4d28d9b288`. Extracted `aria2c.exe` SHA-256: `be2099c214f63a3cb4954b09a0becd6e2e34660b886d4c898d260febfe9d70c2`. The refreshed official binary is byte-identical to the previous local copy. |
 | Node.js | `22.22.2` | https://nodejs.org/dist/v22.22.2/ | Official Windows x64 Node.js runtime bundled for `yt-dlp-ejs`. Extracted `node.exe` SHA-256: `ae1a50511be58e987483fdbc12125407443926d2d394669ade2352776e920dd3`. |
 
-## Update status (2026-09-27)
+## Update status (2026-10-05)
 
-The verified binaries listed above are the versions inside the 2.6.0 EXE. Gyan.dev published a newer FFmpeg git archive on 2026-09-24, and Node.js lists a newer v22 maintenance release and v24 LTS release. The attempted FFmpeg archive download stalled before verification, so **no partial or unchecked binary replaced the bundled copy**. aria2c 1.37.0 remains the latest official release. Python package requirements were updated separately; the next binary refresh must download, checksum, test, and update this record before packaging.
+FFmpeg was refreshed to the 2026-10-01 Gyan.dev git build; the archive checksum matched the published value before extraction. aria2c 1.37.0 is still the latest official release, and the local `aria2c.exe` still matches the hash above. yt-dlp `2026.08.19` and yt-dlp-ejs `0.8.0` are the newest stable PyPI releases (a newer yt-dlp *nightly* exists; release builds stay on stable). Node.js was not part of this refresh.
 
 ## Release policy
 

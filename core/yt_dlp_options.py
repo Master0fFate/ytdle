@@ -14,6 +14,10 @@ from core.utils import (
 
 logger = logging.getLogger(__name__)
 
+# Characters allowed before the extension: 260 (MAX_PATH) minus room for
+# yt-dlp's format and temporary suffixes such as ".f137.mp4.part".
+WINDOWS_PATH_BUDGET = 240
+
 
 def _parse_ffmpeg_args(opts: DownloadOptions) -> list[str]:
     parsed: list[str] = []
@@ -81,6 +85,12 @@ def build_yt_dlp_options(
         "nocheckcertificate": opts.nocheckcertificate,
         "prefer_ffmpeg": True,
     }
+
+    # Windows paths stop at 260 characters unless long paths are enabled. The
+    # template includes the folder, and yt-dlp trims everything before the
+    # extension, so cap the whole path and leave room for ".f137.mp4.part".
+    if os.name == "nt" and len(os.path.abspath(opts.directory)) < WINDOWS_PATH_BUDGET - 60:
+        options["trim_file_name"] = WINDOWS_PATH_BUDGET
 
     ffmpeg_path = get_ffmpeg_path()
     if ffmpeg_path:

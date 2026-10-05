@@ -7,9 +7,11 @@ memory overhead.
 """
 
 import asyncio
+import functools
 import logging
 import os
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Set
@@ -20,11 +22,23 @@ from PySide6.QtCore import QObject, Signal, QThread
 from core.config import DownloadOptions
 from core.utils import final_output_path, format_status, format_eta
 from core.history import DownloadHistory
-from core.errors import classify_error, FormatNotAvailableError, DownloadError
+from core.errors import (
+    AuthenticationError,
+    DownloadError,
+    FormatNotAvailableError,
+    VideoNotFoundError,
+    classify_error,
+)
 from core.network import NetworkMonitor
 from core.yt_dlp_options import build_yt_dlp_options as build_yt_dlp_options_async
 
 logger = logging.getLogger(__name__)
+
+_CANCELLED = "User cancelled"
+_SKIPPED = "Skip current"
+_STATUS_INTERVAL = 0.25  # seconds between live speed/ETA updates per item
+# Retrying cannot fix these; fail at once instead of extracting three times.
+_NOT_RETRYABLE = (VideoNotFoundError, AuthenticationError)
 
 
 @dataclass
@@ -41,6 +55,7 @@ class DownloadItemContext:
     last_error: str = ""
     last_emitted_progress: Optional[int] = None
     last_emitted_status: Optional[str] = None
+    last_status_time: float = 0.0
 
 
 class AsyncDownloadManager:
@@ -82,8 +97,11 @@ class AsyncDownloadManager:
         self.on_all_finished = on_all_finished
 
         self._cancelled = False
-        self._skip_current = False
+        # Skip applies to the items running when the user asked, not to later ones.
+        self._active_urls: Set[str] = set()
+        self._skip_urls: Set[str] = set()
         self._paused = False
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._pause_event = asyncio.Event()
         self._pause_event.set()
 
@@ -97,24 +115,37 @@ class AsyncDownloadManager:
         self._success_count = 0
         self._fail_count = 0
 
+    def _set_pause_event(self, running: bool) -> None:
+        """Change the pause gate from any thread.
+
+        asyncio.Event is not thread-safe: called from the GUI thread, set()
+        does not wake a loop whose workers all wait on the gate.
+        """
+        action = self._pause_event.set if running else self._pause_event.clear
+        loop = self._loop
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(action)
+        else:
+            action()
+
     def cancel(self) -> None:
         """Signal cancellation of all downloads."""
         self._cancelled = True
-        self._pause_event.set()  # Wake up any paused workers
+        self._set_pause_event(True)  # Wake up any paused workers
 
     def skip_current(self) -> None:
-        """Signal skip of current download."""
-        self._skip_current = True
+        """Skip the items that are downloading now."""
+        self._skip_urls |= self._active_urls
 
     def pause(self) -> None:
         """Pause downloads."""
         self._paused = True
-        self._pause_event.clear()
+        self._set_pause_event(False)
 
     def resume(self) -> None:
         """Resume downloads."""
         self._paused = False
-        self._pause_event.set()
+        self._set_pause_event(True)
 
     def is_paused(self) -> bool:
         """Check if downloads are paused."""
@@ -168,27 +199,40 @@ class AsyncDownloadManager:
         *,
         force: bool = False,
     ) -> None:
-        if not force and msg == ctx.last_emitted_status:
+        if msg == ctx.last_emitted_status and not force:
+            return
+        # Speed and ETA change on almost every chunk; a few updates a second is enough.
+        now = time.monotonic()
+        if not force and now - ctx.last_status_time < _STATUS_INTERVAL:
             return
         self._emit_status(msg)
         ctx.last_emitted_status = msg
+        ctx.last_status_time = now
 
-    def _progress_hook(self, d: Dict) -> None:
-        """Progress hook called by yt-dlp (runs in executor thread)."""
-        ctx: Optional[DownloadItemContext] = getattr(
-            self._thread_local, "context", None
-        )
+    def _check_interrupts(self, ctx: Optional[DownloadItemContext]) -> None:
+        if self._cancelled:
+            raise RuntimeError(_CANCELLED)
+        if ctx is not None and ctx.url in self._skip_urls:
+            raise RuntimeError(_SKIPPED)
+
+    def _progress_hook(
+        self, d: Dict, ctx: Optional[DownloadItemContext] = None
+    ) -> None:
+        """Progress hook called by yt-dlp (executor or fragment threads)."""
+        # yt-dlp calls hooks from its own fragment threads for HLS/DASH, where
+        # thread-local state is empty; the bound ``ctx`` covers those calls.
+        if ctx is None:
+            ctx = getattr(self._thread_local, "context", None)
+        self._check_interrupts(ctx)
         if ctx is None:
             return
 
-        if self._cancelled:
-            raise RuntimeError("User cancelled")
-        if self._skip_current:
-            raise RuntimeError("Skip current")
-
-        # Handle pause in a non-blocking way
-        # Note: This is called from yt-dlp's thread, so we can't use asyncio.sleep
-        # The actual pause handling happens between download attempts
+        if self._paused:
+            # Hooks run outside the event loop, so blocking here holds the transfer.
+            self._emit_item_status(ctx, "Paused", force=True)
+            while self._paused:
+                time.sleep(0.1)
+                self._check_interrupts(ctx)
 
         try:
             status = d.get("status")
@@ -202,10 +246,7 @@ class AsyncDownloadManager:
 
                 speed = d.get("speed")
                 eta = d.get("eta")
-                status_msg = format_status(speed, eta)
-                if self._paused:
-                    status_msg = "Paused"
-                self._emit_item_status(ctx, status_msg)
+                self._emit_item_status(ctx, format_status(speed, eta))
 
                 if total and pct >= ctx.last_logged_pct + 10:
                     ctx.last_logged_pct = pct - (pct % 10)
@@ -258,12 +299,13 @@ class AsyncDownloadManager:
         ctx.last_error = ""
 
         for attempt in range(max_attempts):
-            if self._cancelled:
-                raise RuntimeError("User cancelled")
+            self._check_interrupts(ctx)
 
             try:
                 ydl_opts = build_yt_dlp_options_async(
-                    self.options, self._progress_hook, attempt
+                    self.options,
+                    functools.partial(self._progress_hook, ctx=ctx),
+                    attempt,
                 )
                 ydl_opts.setdefault("post_hooks", []).append(
                     lambda path, current=ctx: self._record_output_path(current, path)
@@ -286,8 +328,12 @@ class AsyncDownloadManager:
                 )
                 error_str = str(e)
                 ctx.last_error = error_str
+                if error_str in (_CANCELLED, _SKIPPED):
+                    raise
                 classified_error = classify_error(e)
 
+                if isinstance(classified_error, _NOT_RETRYABLE):
+                    raise
                 if isinstance(classified_error, FormatNotAvailableError):
                     if attempt < max_attempts - 1:
                         self._emit_log("Format not available, trying fallback...")
@@ -390,8 +436,10 @@ class AsyncDownloadManager:
             await self._pause_event.wait()
 
             if self._cancelled:
+                # Drain instead of stopping: every queued URL must be marked done,
+                # or queue.join() never returns and the batch never finishes.
                 self._queue.task_done()
-                break
+                continue
 
             async with self._semaphore:
                 try:
@@ -404,8 +452,14 @@ class AsyncDownloadManager:
     async def _process_single_download(self, url: str) -> None:
         """Process a single download URL."""
         ctx = DownloadItemContext(url=url)
-        self._skip_current = False
+        self._active_urls.add(url)
+        try:
+            await self._process_item(url, ctx)
+        finally:
+            self._active_urls.discard(url)
+            self._skip_urls.discard(url)
 
+    async def _process_item(self, url: str, ctx: DownloadItemContext) -> None:
         if self.on_item_started:
             self.on_item_started(url)
 
@@ -450,7 +504,7 @@ class AsyncDownloadManager:
 
         except Exception as e:
             error_str = str(e)
-            if error_str == "User cancelled":
+            if error_str == _CANCELLED:
                 self._cleanup_artifacts_for_current_item(ctx)
                 if self._history:
                     self._history.add_failed(
@@ -465,7 +519,7 @@ class AsyncDownloadManager:
                 self._emit_log(f"Cancelled: {url}")
                 raise  # Propagate to stop processing
 
-            if error_str == "Skip current":
+            if error_str == _SKIPPED:
                 self._cleanup_artifacts_for_current_item(ctx)
                 if self._history:
                     self._history.add_failed(
@@ -513,6 +567,9 @@ class AsyncDownloadManager:
         self._emit_log(
             f"Using async download manager with {self.max_concurrent} concurrent workers"
         )
+        self._loop = asyncio.get_running_loop()
+        if self._paused:
+            self._pause_event.clear()
 
         for url in self.urls:
             await self._queue.put(url)

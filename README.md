@@ -2,13 +2,19 @@
 
 YTDLE is a modern, cross-platform media downloader built with Python and PySide6 (Qt). It provides a graphical interface for `yt-dlp`, allowing users to download videos and audio from thousands of supported sites including YouTube, Twitter, TikTok, and more.
 
-![YTDLE dark Material 3 Expressive-inspired desktop UI](docs/screenshots/ytdle-material3-dark.png)
+![YTDLE desktop window, Default skin](docs/screenshots/ytdle-material3-dark.png)
 
-*Native Windows capture with a temporary, generic output path; no download was started.*
+| Material 3 skin | Angelcore skin |
+| --- | --- |
+| ![Material 3 skin](docs/screenshots/ytdle-skin-material3.png) | ![Angelcore skin](docs/screenshots/ytdle-skin-angelcore.png) |
+
+*Captures from the dev UI lab with a generic output path and simulated download rows; no download was started.*
 
 ## Features
 
-- **Dark Material 3 Expressive-inspired UI**: Roboto type, pill-shaped filled fields with a purple focus line, tonal surfaces, and icon-only actions with tooltips and accessible names.
+- **Calm, task-first UI**: One drop zone for links, one row for format and quality, one labeled Download button. A status card says what will happen before you start ("3 links · MP3 320k · to C:\Downloads") and what happened after. Expert settings live on the Options and Cookies pages.
+- **Three skins**: Default (soft purple, rounded), Material 3 (Google's dark scheme: tonal surfaces, filled fields, tabs), and Angelcore (near-black, square, monospace, words instead of icons). Pick one on the Options page; it switches at once and is remembered.
+- **Per-link activity**: Every link gets a row that moves from Waiting to Downloading to Saved or Failed, with the reason. Double-click a saved row to show the file in Explorer. The raw log is one click away.
 - **Async Download Engine**: High-performance asyncio-based downloader with lower memory overhead and better concurrency.
 - **CLI Mode**: Full command-line interface for headless usage or scripting.
 - **Format Selection**: Easily switch between MP3 (Audio) and MP4 (Video) formats.
@@ -17,7 +23,7 @@ YTDLE is a modern, cross-platform media downloader built with Python and PySide6
 - **Toolchain Readiness**: GUI surfaces detected FFmpeg, aria2c, and yt-dlp status before a download starts.
 - **Custom FFmpeg Args**: Pass custom flags directly to FFmpeg (via GUI or CLI).
 - **Batch Processing**: Download multiple URLs concurrently with a queue system.
-- **Smart URL Queue**: Import UTF-8 link lists, detect malformed entries, and skip duplicate URLs before downloading.
+- **Smart URL Queue**: Import UTF-8 link lists, detect malformed entries, and skip duplicate URLs before downloading. YouTube links to the same video (`youtu.be/…`, `watch?v=…&si=…`, Shorts) count as one.
 - **Playlist Support**: Option to download entire playlists or channels.
 - **Smart Naming**: Customizable output filename templates (e.g., Uploader - Title).
 - **Robust Error Handling**: Automatic retries and fallback logic for different formats.
@@ -61,13 +67,14 @@ YTDLE is a modern, cross-platform media downloader built with Python and PySide6
 ## Usage
 
 ### Graphical Interface (GUI)
-Run `YTDLE.exe` or `python main.py` to launch the dark GUI. Hover over an icon to see its action, or use the keyboard: `Ctrl+Enter` starts, `Ctrl+L` focuses the link list, and `Esc` cancels. Format and setting choices keep visible labels.
+Run `YTDLE.exe` or `python main.py` to launch the dark GUI. Paste or drop links, pick MP3 or MP4, and press **Download**. Hover over an icon to see its action.
 
-**New Options:**
-- **Async Mode**: Enable high-performance asyncio download engine (default: enabled)
-- **Use Aria2c**: Enable multi-connection downloads for faster speeds (requires aria2c binary)
-- **Queue Tools**: `Import List` accepts one HTTP(S) link per line; `Clean Queue` removes invalid, duplicate, and `#` comment lines.
-- **Keyboard Shortcuts**: `Ctrl+Enter` starts downloads, `Ctrl+L` focuses the URL queue, and `Esc` requests cancellation.
+- **Download page**: links, format, quality, playlist switch, save folder, status card, and activity (per-link rows or the raw log).
+- **Options page**: skin, file-name presets and template, safe file names, FFmpeg arguments, parallel downloads, aria2c, and the detected toolchain.
+- **Cookies page**: one cookie source (none, a browser, or a cookies.txt file) plus browser profile fields.
+- **Queue tools**: `Paste` adds clipboard links; `Import list` accepts one HTTP(S) link per line; `Clean queue` removes invalid, duplicate, and `#` comment lines. Dropped and pasted links are validated and de-duplicated.
+- **Keyboard shortcuts**: `Ctrl+Enter` starts, `Esc` cancels, `Ctrl+Shift+V` pastes links, `Ctrl+O` imports a list, `Ctrl+L` focuses the link list, `Ctrl+H` opens history, and `Ctrl+1`/`2`/`3` switch pages.
+- **Window**: drag the title bar (Windows snap works), double-click it to maximize, and resize from the bottom-right corner. The taskbar title shows batch progress, and the taskbar button flashes when a batch finishes in the background.
 
 ### Command Line Interface (CLI)
 You can use the **same** executable for CLI operations. Every command shares settings and history with the GUI.
@@ -164,7 +171,9 @@ The script requires the icon, both tool binaries, Node.js, the third-party notic
   - `errors.py`: Custom exceptions and error classification.
   - `network.py`: Network connectivity monitoring utilities.
 - `ui/`: User interface components, styles, and main window logic.
-  - `components/`: Reusable UI components (History dialog, Title bar, etc.).
+  - `components/`: Reusable UI components (History dialog, Title bar, activity list, etc.).
+  - `skins.py` and `themes/`: The three skins: colors, fonts, presentation choices, and one stylesheet module per skin.
+- `dev/`: Dev-only UI lab (`python -m dev.ui_lab --data worst --skin angelcore`) with demo and realistic worst-case data; `--shots DIR` screenshots every state. Not part of the app or the EXE.
 - `main.py`: Application entry point (handles both GUI and CLI).
 - `build.bat`: Windows build script with multiple build options.
 - `build_release.py`: Python release builder that includes local FFmpeg/aria2c when present.

@@ -822,7 +822,7 @@ def run_history(args: argparse.Namespace) -> int:
 def run_retry_failed(args: argparse.Namespace) -> int:
     history = _open_history(getattr(args, "history_file", None))
     try:
-        urls = [record.url for record in history.get_failed()]
+        urls = history.get_failed_urls()
     finally:
         history.close()
     if not urls:

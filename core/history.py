@@ -224,8 +224,11 @@ class DownloadHistory:
             return False
 
     def get_failed_urls(self) -> List[str]:
-        """Get list of failed URLs."""
-        return [r.url for r in self.get_failed()]
+        """Unique URLs whose most recent attempt failed, newest first."""
+        latest_success: Dict[str, bool] = {}
+        for record in self.get_all():  # newest first
+            latest_success.setdefault(record.url, record.success)
+        return [url for url, success in latest_success.items() if not success]
 
     def clear_history(self) -> None:
         """Clear all history."""

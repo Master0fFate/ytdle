@@ -111,3 +111,15 @@ def test_cookie_source_precedence_in_shared_builder(monkeypatch):
     both = downloader.build_yt_dlp_options(both_opts, lambda _data: None)
     assert both["cookiesfrombrowser"] == ("chrome", None, None, None)
     assert "cookiefile" not in both
+
+
+def test_windows_paths_are_capped_below_max_path(monkeypatch):
+    monkeypatch.setattr(yt_dlp_options.os, "name", "nt")
+    options = yt_dlp_options.build_yt_dlp_options(_options(), lambda _d: None)
+    assert options["trim_file_name"] == yt_dlp_options.WINDOWS_PATH_BUDGET
+
+    long_folder = _options()
+    long_folder.directory = "C:/" + "x" * 230
+    options = yt_dlp_options.build_yt_dlp_options(long_folder, lambda _d: None)
+    # Trimming would cut into the folder itself; leave the path alone.
+    assert "trim_file_name" not in options

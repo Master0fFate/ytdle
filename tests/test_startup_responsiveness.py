@@ -61,7 +61,7 @@ def test_network_probe_is_repeatable_nonblocking_and_cancelled_on_close(
     qtbot.addWidget(window)
     first = FakeSocket.instances[-1]
     assert first.target == ("8.8.8.8", 53)
-    assert window.network_label.text() == "Network: Checking..."
+    assert window.network_label.text() == "Checking…"
     assert not window.check_network_button.isEnabled()
     console = window.log_output.toPlainText()
     assert "Toolchain: FFmpeg ready" in console
@@ -73,10 +73,11 @@ def test_network_probe_is_repeatable_nonblocking_and_cancelled_on_close(
     assert first.aborted
     assert second is not first
     first.connected.emit()
-    assert window.network_label.text() == "Network: Checking..."
+    assert window.network_label.text() == "Checking…"
 
     second.connected.emit()
-    assert window.network_label.text() == "Network: Online | yt-dlp: test-version"
+    assert window.network_label.text() == "● Online"
+    assert "test-version" in window.network_label.toolTip()
     assert "Network status: Online" in window.log_output.toPlainText()
     assert window.check_network_button.isEnabled()
 
@@ -84,7 +85,7 @@ def test_network_probe_is_repeatable_nonblocking_and_cancelled_on_close(
     window._check_network_status()
     third = FakeSocket.instances[-1]
     third.errorOccurred.emit(object())
-    assert window.network_label.text() == "Network: Offline | yt-dlp: test-version"
+    assert window.network_label.text() == "● Offline"
     assert not window.check_network_button.isEnabled()
 
     window._set_controls_enabled(True)

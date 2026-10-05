@@ -4,7 +4,7 @@ from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from core.history import HistoryRecord
-from ui.components.history_dialog import HistoryDialog
+from ui.components.history_dialog import PATH_COLUMN, HistoryDialog
 from ui.styles import apply_chrome
 
 
@@ -13,15 +13,15 @@ class FakeHistory:
         self.records = records
         self.calls = Counter()
 
-    def get_all(self):
+    def get_all(self, limit=None):
         self.calls["get_all"] += 1
-        return list(self.records)
+        return list(self.records)[:limit] if limit else list(self.records)
 
-    def get_completed(self):
+    def get_completed(self, limit=None):
         self.calls["get_completed"] += 1
         return [record for record in self.records if record.success]
 
-    def get_failed(self):
+    def get_failed(self, limit=None):
         self.calls["get_failed"] += 1
         return [record for record in self.records if not record.success]
 
@@ -68,7 +68,7 @@ def test_initial_load_queries_once_and_filter_keeps_all_table_rows(qtbot):
     assert dialog.failed_table.rowCount() == failed_count
     assert dialog.completed_table.isSortingEnabled()
     assert dialog.failed_table.isSortingEnabled()
-    assert dialog.completed_table.item(0, 6).toolTip().startswith("C:/Downloads/")
+    assert dialog.completed_table.item(0, PATH_COLUMN).toolTip().startswith("C:/Downloads/")
 
     dialog.filter_input.setText("title 49")
     expected_visible = sum(
@@ -117,3 +117,44 @@ def test_clear_refreshes_only_the_changed_history_partition(
     assert history.calls["get_failed"] == 0
     assert dialog.completed_table.rowCount() == 0
     assert dialog.failed_table.rowCount() == failed_before
+
+
+def test_history_shows_readable_paths_reasons_titles_and_dates(qtbot):
+    records = [
+        HistoryRecord(
+            url="https://example.test/a", title="", format="mp3", quality="320k",
+            timestamp="1970-01-01T00:00:00", output_path="C:/Downloads/a.mp3",
+            success=True, error_message="", retry_count=0,
+        ),
+        HistoryRecord(
+            url="https://example.test/b", title="<b>Live</b>", format="mp4", quality="1080p",
+            timestamp="", output_path="", success=False,
+            error_message="ERROR: [site] b: Private video\nTraceback (most recent call last):",
+            retry_count=0,
+        ),
+    ]
+    dialog = HistoryDialog(FakeHistory(records))
+    qtbot.addWidget(dialog)
+
+    assert dialog.completed_table.columnCount() == 6
+    assert dialog.completed_table.item(0, 1).text() == "example.test/a"
+    assert dialog.completed_table.item(0, 4).text() == "—"
+    assert dialog.failed_table.item(0, PATH_COLUMN).text() == "[site] b: Private video"
+    assert dialog.failed_table.item(0, 4).text() == "—"
+    # Titles that look like HTML stay literal in tooltips.
+    assert dialog.failed_table.item(0, 1).toolTip() == "<qt>&lt;b&gt;Live&lt;/b&gt;</qt>"
+
+
+def test_long_history_opens_with_the_newest_page_and_can_load_all(qtbot, monkeypatch):
+    import ui.components.history_dialog as history_dialog
+
+    monkeypatch.setattr(history_dialog, "PAGE_SIZE", 50)
+    dialog = HistoryDialog(FakeHistory(_records(120)))
+    qtbot.addWidget(dialog)
+    assert dialog.completed_table.rowCount() + dialog.failed_table.rowCount() == 50
+    assert dialog.tab_widget.tabText(1).endswith("+)")
+    assert not dialog.load_all_btn.isHidden()
+
+    dialog.load_all_btn.click()
+    assert dialog.completed_table.rowCount() + dialog.failed_table.rowCount() == 120
+    assert dialog.load_all_btn.isHidden()

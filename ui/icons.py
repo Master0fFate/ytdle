@@ -1,11 +1,11 @@
-"""Google Material Icons Outlined glyphs for the Angelcore desktop chrome.
+"""Google Material Icons Outlined glyphs for the YTDLE desktop chrome.
 
 Material Icons (https://github.com/google/material-design-icons) are
 licensed under Apache License 2.0.
 """
 
 from PySide6.QtCore import QByteArray, QRectF, QSize, Qt
-from PySide6.QtGui import QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QIcon, QImage, QLinearGradient, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
 # Official 24px outlined SVGs from google/material-design-icons.
@@ -13,11 +13,6 @@ _MATERIAL_OUTLINED = {
     "folder": (
         '<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24">'
         '<path d="M9.17 6l2 2H20v10H4V6h5.17M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>'
-        "</svg>"
-    ),
-    "open-folder": (
-        '<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24">'
-        '<path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/>'
         "</svg>"
     ),
     "file": (
@@ -40,6 +35,12 @@ _MATERIAL_OUTLINED = {
     "resume": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 8.64 15.27 12 10 15.36V8.64M8 5v14l11-7L8 5z"/></svg>',
     "skip": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zm2-8.14L11.03 12 8 14.14V9.86zM16 6h2v12h-2z"/></svg>',
     "cancel": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>',
+    "audio": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3l.01 10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4.01 4S14 19.21 14 17V7h4V3h-6zm-1.99 16c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>',
+    "video": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 6.47L5.76 10H20v8H4V6.47M22 4h-4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4z"/></svg>',
+    "paste": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 2h-4.18C14.4.84 13.3 0 12 0S9.6.84 9.18 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z"/></svg>',
+    "link": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>',
+    "launch": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>',
+    "chevron":'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z"/></svg>',
     "minimize": (
         '<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24">'
         '<path d="M19 13H5v-2h14v2z"/>'
@@ -52,14 +53,8 @@ _MATERIAL_OUTLINED = {
     ),
 }
 
-_STATE_COLORS = {
-    QIcon.Mode.Normal: "#cac6d5",
-    QIcon.Mode.Active: "#f0edf7",
-    QIcon.Mode.Disabled: "#706d7b",
-}
-
-
-def _render_icon(name: str, color: str) -> QPixmap:
+def icon_pixmap(name: str, size: int, color: str, *, scale: float = 2.0) -> QPixmap:
+    """Render one Material glyph at ``size`` logical pixels in ``color``."""
     template = _MATERIAL_OUTLINED.get(name)
     if template is None:
         raise ValueError(f"Unknown icon: {name}")
@@ -67,12 +62,99 @@ def _render_icon(name: str, color: str) -> QPixmap:
     svg = template.replace("<path d=", f'<path fill="{color}" d=', 1)
     renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
 
-    pixmap = QPixmap(48, 48)
-    pixmap.setDevicePixelRatio(2.0)
+    pixels = round(size * scale)
+    pixmap = QPixmap(pixels, pixels)
+    pixmap.setDevicePixelRatio(scale)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    inset = size / 24.0
+    painter = QPainter(pixmap)
+    renderer.render(painter, QRectF(inset, inset, size - 2 * inset, size - 2 * inset))
+    painter.end()
+    return pixmap
+
+
+def _render_icon(name: str, color: str) -> QPixmap:
+    return icon_pixmap(name, 24, color)
+
+
+def brand_pixmap(size: int = 28) -> QPixmap:
+    """YTDLE mark in the active skin: gradient tile, tonal tile, or the bare glyph."""
+    from ui.skins import COLORS, active_skin
+
+    style = active_skin().brand_style
+    scale = 2.0
+    pixmap = QPixmap(round(size * scale), round(size * scale))
+    pixmap.setDevicePixelRatio(scale)
     pixmap.fill(Qt.GlobalColor.transparent)
 
     painter = QPainter(pixmap)
-    renderer.render(painter, QRectF(1.0, 1.0, 22.0, 22.0))
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    if style == "mono":
+        glyph_color = COLORS["strong"]
+        glyph = size * 0.86
+    else:
+        if style == "tonal":
+            painter.setBrush(QColor(COLORS["primary_container"]))
+            glyph_color = COLORS["on_selected"]
+            radius = size * 0.28
+        else:
+            gradient = QLinearGradient(0.0, 0.0, float(size), float(size))
+            gradient.setColorAt(0.0, QColor(COLORS["accent"]))
+            gradient.setColorAt(1.0, QColor("#b06cf8"))
+            painter.setBrush(gradient)
+            glyph_color = "#ffffff"
+            radius = size * 0.3
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(QRectF(0.0, 0.0, size, size), radius, radius)
+        glyph = size * 0.64
+    offset = (size - glyph) / 2.0
+    painter.drawPixmap(
+        QRectF(offset, offset, glyph, glyph).toRect(),
+        icon_pixmap("download", round(glyph), glyph_color),
+    )
+    painter.end()
+    return pixmap
+
+
+# Ordered 4x4 Bayer matrix: a fixed, reproducible threshold pattern.
+_BAYER = ((0, 8, 2, 10), (12, 4, 14, 6), (3, 11, 1, 9), (15, 7, 13, 5))
+
+
+def dither_pixmap(name: str, width: int, height: int, ink: str, *, cell: int = 2) -> QPixmap:
+    """Ambient art: one glyph quantized once with ordered dithering.
+
+    The tone map is the glyph's own coverage with a soft vertical and radial
+    fade baked in before quantizing, so the edge dissolves into the ground.
+    Marks are ``cell`` x ``cell`` squares in ``ink`` on a transparent field.
+    """
+    import math
+
+    grid_w, grid_h = width // cell, height // cell
+    source = QImage(grid_w, grid_h, QImage.Format.Format_ARGB32)
+    source.fill(Qt.GlobalColor.transparent)
+    side = min(grid_w, grid_h)
+    painter = QPainter(source)
+    renderer = QSvgRenderer(QByteArray(_MATERIAL_OUTLINED[name].replace(
+        "<path d=", '<path fill="#ffffff" d=', 1).encode("utf-8")))
+    renderer.render(painter, QRectF((grid_w - side) / 2.0, (grid_h - side) / 2.0, side, side))
+    painter.end()
+
+    pixmap = QPixmap(grid_w * cell, grid_h * cell)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    ink_color = QColor(ink)
+    cx, cy = grid_w / 2.0, grid_h / 2.0
+    radius = math.hypot(cx, cy)
+    for y in range(grid_h):
+        for x in range(grid_w):
+            coverage = source.pixelColor(x, y).alphaF()
+            # A faint field around the glyph keeps the mark from reading as a sticker.
+            fade = max(0.0, 1.0 - math.hypot(x - cx, y - cy) / radius)
+            tone = max(coverage * (0.35 + 0.65 * fade), 0.22 * fade * fade)
+            threshold = (_BAYER[y % 4][x % 4] + 0.5) / 16.0
+            if tone > threshold:
+                painter.fillRect(x * cell, y * cell, cell, cell, ink_color)
     painter.end()
     return pixmap
 
@@ -91,9 +173,11 @@ def icon_action(button, name: str, label: str, *, primary: bool = False) -> None
 
 
 def line_icon(name: str) -> QIcon:
-    """Return a DPI-aware Material outlined icon with hover and disabled states."""
+    """Return a DPI-aware Material outlined icon in the active skin's icon inks."""
+    from ui.skins import COLORS
+
     icon = QIcon()
-    icon.addPixmap(_render_icon(name, _STATE_COLORS[QIcon.Mode.Normal]), QIcon.Mode.Normal)
-    icon.addPixmap(_render_icon(name, _STATE_COLORS[QIcon.Mode.Active]), QIcon.Mode.Active)
-    icon.addPixmap(_render_icon(name, _STATE_COLORS[QIcon.Mode.Disabled]), QIcon.Mode.Disabled)
+    icon.addPixmap(_render_icon(name, COLORS["icon"]), QIcon.Mode.Normal)
+    icon.addPixmap(_render_icon(name, COLORS["icon_active"]), QIcon.Mode.Active)
+    icon.addPixmap(_render_icon(name, COLORS["icon_disabled"]), QIcon.Mode.Disabled)
     return icon

@@ -10,7 +10,7 @@ import subprocess
 import sys
 from typing import List, Optional
 
-VERSION = "2.6.0"
+VERSION = "2.7.0"
 AUTHOR = "Master0fFate"
 DESCRIPTION = (
     "YTDLE Media Downloader - Modern GUI/CLI downloader built with Python and PySide6"

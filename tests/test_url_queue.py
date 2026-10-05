@@ -86,3 +86,32 @@ def test_merge_url_queue_adds_only_new_valid_links_and_preserves_editor_text():
     assert result.comment_count == 1
     assert len(result.invalid_entries) == 1
     assert result.text == f"{existing}\nhttps://example.com/two"
+
+
+def test_youtube_links_to_one_video_are_duplicates():
+    analysis = analyze_url_queue(
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ&si=tracking\n"
+        "https://youtu.be/dQw4w9WgXcQ?si=other\n"
+        "https://m.youtube.com/watch?v=dQw4w9WgXcQ\n"
+        "https://www.youtube.com/shorts/abcdefghijk\n"
+        "https://youtube.com/shorts/abcdefghijk\n"
+    )
+    assert analysis.urls == (
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ&si=tracking",
+        "https://www.youtube.com/shorts/abcdefghijk",
+    )
+    assert analysis.duplicate_count == 3
+
+
+def test_playlist_links_are_not_merged_with_the_bare_video():
+    analysis = analyze_url_queue(
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ\n"
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123\n"
+    )
+    assert len(analysis.urls) == 2
+    merged = merge_url_queue(
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        ("https://youtu.be/dQw4w9WgXcQ",),
+    )
+    assert merged.added_count == 0
+    assert merged.duplicate_count == 1

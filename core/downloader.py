@@ -10,7 +10,13 @@ from PySide6.QtCore import QObject, Signal
 from core.config import DownloadOptions
 from core.utils import final_output_path, format_status, format_eta
 from core.history import DownloadHistory
-from core.errors import classify_error, FormatNotAvailableError, DownloadError
+from core.errors import (
+    AuthenticationError,
+    DownloadError,
+    FormatNotAvailableError,
+    VideoNotFoundError,
+    classify_error,
+)
 from core.network import NetworkMonitor
 from core.yt_dlp_options import build_yt_dlp_options
 
@@ -230,8 +236,13 @@ class DownloadManager:
                 )
                 error_str = str(e)
                 last_error = error_str
+                if error_str in ("User cancelled", "Skip current"):
+                    raise
                 classified_error = classify_error(e)
 
+                # Retrying cannot fix a missing video or a login wall.
+                if isinstance(classified_error, (VideoNotFoundError, AuthenticationError)):
+                    raise
                 if isinstance(classified_error, FormatNotAvailableError):
                     if attempt < max_attempts - 1:
                         self._emit_log("Format not available, trying fallback...")

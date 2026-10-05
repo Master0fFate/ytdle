@@ -1,3 +1,5 @@
+from collections import Counter
+
 import pytest
 from PySide6.QtCore import QPoint, QRect, QSettings
 from PySide6.QtWidgets import QApplication
@@ -5,6 +7,7 @@ from PySide6.QtWidgets import QApplication
 from ui.styles import apply_chrome
 
 import ui.main_window as main_window
+from ui.components.session_list import SessionList
 
 
 @pytest.fixture
@@ -54,7 +57,7 @@ def test_main_window_queue_validation_and_cleaning(window):
         "https://example.com/one",
         "https://example.com/two",
     ]
-    assert "Queue: 2 links" in window.queue_label.text()
+    assert window.queue_label.text().startswith("2 links")
     assert "1 duplicate" in window.queue_label.text()
     assert "1 invalid" in window.queue_label.text()
     assert "Line 3 contains spaces" in window._validate_inputs()
@@ -162,9 +165,14 @@ def test_queue_cache_reuses_analysis_until_exact_text_changes(window, monkeypatc
     assert len(calls) == 2
 
 
-def test_compact_layout_uses_one_format_switch_without_overlap(window, qtbot):
+def _rect(window, widget):
+    return QRect(widget.mapTo(window, QPoint(0, 0)), widget.size())
+
+
+@pytest.mark.parametrize("size", [(760, 560), (920, 640)])
+def test_layout_reads_top_to_bottom_without_overlap(window, qtbot, size):
     apply_chrome(QApplication.instance())
-    window.resize(760, 560)
+    window.resize(*size)
     window.show()
     qtbot.wait(20)
 
@@ -178,64 +186,146 @@ def test_compact_layout_uses_one_format_switch_without_overlap(window, qtbot):
     assert window.mp3_btn.geometry().right() + 1 == window.mp4_btn.geometry().left()
 
     bounds = QRect(QPoint(0, 0), window.size())
-    controls = (
-        window.dir_input,
-        window.url_input,
+    # Links, then what to download, then where, then the action, then activity.
+    rows = (
+        window.drop_zone,
         window.format_switch,
+        window.dir_input,
+        window.start_button,
+        window.progress_bar,
+        window.session_list,
+    )
+    others = (
         window.quality_combo,
-        window.template_presets,
-        window.template_line,
-        window.ffmpeg_input,
-        window.ffmpeg_mode,
+        window.playlist_checkbox,
+        window.browse_button,
+        window.open_folder_button,
+        window.paste_button,
         window.history_button,
         window.check_network_button,
-        window.start_button,
-        window.cancel_button,
-        window.pause_button,
-        window.skip_button,
+        window.network_label,
     )
-    for control in controls:
-        top_left = control.mapTo(window, QPoint(0, 0))
-        rect = QRect(top_left, control.size())
-        assert bounds.contains(rect)
+    for control in rows + others:
+        assert control.isVisible()
+        assert bounds.contains(_rect(window, control))
+    for upper, lower in zip(rows, rows[1:]):
+        assert _rect(window, upper).bottom() < _rect(window, lower).top()
 
-    network_rect = QRect(
-        window.check_network_button.mapTo(window, QPoint(0, 0)),
-        window.check_network_button.size(),
-    )
-    start_rect = QRect(
-        window.start_button.mapTo(window, QPoint(0, 0)),
-        window.start_button.size(),
-    )
-    assert not network_rect.intersects(start_rect)
-    import_center = window.import_urls_button.mapTo(window, window.import_urls_button.rect().center()).y()
-    browse_center = window.browse_button.mapTo(window, window.browse_button.rect().center()).y()
-    assert abs(import_center - browse_center) <= 1
-    history_center = window.history_button.mapTo(window, window.history_button.rect().center()).y()
-    start_center = window.start_button.mapTo(window, window.start_button.rect().center()).y()
-    assert abs(history_center - start_center) <= 1
-    assert window.start_button.size() == window.cancel_button.size()
-    url_rect = QRect(window.url_input.mapTo(window, QPoint(0, 0)), window.url_input.size())
-    format_rect = QRect(window.format_switch.mapTo(window, QPoint(0, 0)), window.format_switch.size())
-    assert not url_rect.intersects(format_rect)
-    assert window.start_button.geometry().bottom() < window.progress_bar.mapTo(
-        window, QPoint(0, 0)
-    ).y()
+    last_nav = window.nav_group.button(len(main_window._PAGES) - 1)
+    assert _rect(window, last_nav).right() < _rect(window, window.network_label).left()
+    assert window.start_button.width() >= 120
 
 
-def test_icon_actions_remain_named_and_discoverable(window):
+def test_running_batch_swaps_download_for_transport(window):
+    transport = (window.cancel_button, window.pause_button, window.skip_button)
+    assert not window.start_button.isHidden()
+    assert all(button.isHidden() for button in transport)
+
+    window._set_controls_enabled(False)
+    assert window.start_button.isHidden()
+    assert all(not button.isHidden() and button.isEnabled() for button in transport)
+    assert not window.url_input.isEnabled()
+
+    window._set_controls_enabled(True)
+    assert not window.start_button.isHidden()
+    assert all(button.isHidden() for button in transport)
+
+
+def test_actions_are_named_and_discoverable(window):
     for button in (
         window.import_urls_button, window.clean_urls_button, window.clear_urls_button,
-        window.history_button, window.check_network_button, window.start_button,
-        window.cancel_button, window.pause_button, window.skip_button,
+        window.history_button, window.check_network_button,
+        window.pause_button, window.skip_button,
     ):
         assert not button.text()
         assert not button.icon().isNull()
         assert button.accessibleName()
         assert button.toolTip()
+    for button in (window.start_button, window.cancel_button, window.paste_button):
+        assert button.text()
+        assert button.accessibleName()
+        assert button.toolTip()
     assert window.mp3_btn.text() == "MP3"
     assert window.mp4_btn.text() == "MP4"
     assert window.cookie_file_browse.accessibleName() == "Browse for cookie file"
+
+
+def test_download_button_counts_links_and_plan_is_visible(window):
+    assert window.start_button.text() == "Download"
+    assert not window.empty_state.isHidden()
+    assert window.status_detail.text().startswith("Add links to start · MP3")
+
+    window.url_input.setPlainText("https://example.com/a\nhttps://example.com/b")
+
+    assert window.start_button.text() == "Download 2"
+    assert window.empty_state.isHidden()
+    assert window.status_detail.text().startswith("2 links · MP3 320k · to ")
+
+
+def test_invalid_start_explains_inline_without_a_dialog(window, monkeypatch):
+    monkeypatch.setattr(
+        main_window.QMessageBox,
+        "warning",
+        lambda *_args: pytest.fail("validation must not open a modal dialog"),
+    )
+    window.url_input.setPlainText("https://example.com/a\nnot a link")
+
+    window._start_downloads()
+
+    assert window.status_label.text() == "Line 2 contains spaces."
+    assert window.status_label.property("state") == "error"
+    assert "Clean Queue" in window.status_detail.text()
+    assert window._controls_enabled
+
+
+def test_paste_button_merges_clipboard_links(window):
+    QApplication.clipboard().setText("https://example.com/a\nhttps://example.com/a")
+    window._paste_from_clipboard()
+    assert window._collect_urls() == ["https://example.com/a"]
+    assert window.status_label.text() == (
+        "Added 1 link from the clipboard. Skipped 1 duplicate."
+    )
+
+
+def test_batch_progress_is_monotonic_and_rows_track_each_link(window, qtbot):
+    urls = ["https://example.com/a", "https://example.com/b"]
+    window.session_list.start_session(urls)
+    window._set_controls_enabled(False)
+    window._downloading_total = 2
+
+    window._on_item_started(urls[0])
+    assert window.status_label.text() == "Downloading · 0 of 2 finished"
+    window._on_progress(80)
+    # Concurrent items report their own percentages; the batch bar never goes back.
+    window._on_progress(10)
+    assert window._progress_floor == 40
+    assert window.windowTitle() == "40% · YTDLE"
+
+    window._on_item_finished(urls[0], True, "C:/Downloads/a.mp3")
+    window._on_item_started(urls[1])
+    window._on_item_finished(urls[1], False, "ERROR: [site] b: Private video")
+    window._on_all_finished(1, 1)
+
+    assert window.session_list.counts() == Counter(done=1, failed=1)
+    assert SessionList.item_detail(window.session_list.item(0)) == "C:/Downloads/a.mp3"
+    assert SessionList.item_detail(window.session_list.item(1)) == "[site] b: Private video"
+    assert window.status_label.text() == "1 saved, 1 failed"
+    assert window._controls_enabled
+    assert window.windowTitle() == "YTDLE"
+    qtbot.waitUntil(lambda: window.progress_bar.value() == 100, timeout=1000)
+
+
+def test_cancelled_batch_marks_unstarted_rows(window):
+    urls = ["https://example.com/a", "https://example.com/b"]
+    window.session_list.start_session(urls)
+    window._set_controls_enabled(False)
+    window._downloading_total = 2
+    window._on_item_started(urls[0])
+    window._on_item_finished(urls[0], False, "Cancelled")
+    window._on_all_finished(0, 0)
+
+    assert window.session_list.counts() == Counter(stopped=2)
+    assert window.status_label.text() == "Stopped. Nothing was saved."
 
 
 def test_activity_view_is_bounded_while_persistent_log_is_unchanged(window):
@@ -263,9 +353,9 @@ def test_settings_writes_are_coalesced_while_typing(window, qtbot):
 
 
 def test_statuses_render_in_console_and_live_updates_replace_the_last_line(window):
-    assert window.status_label.isHidden()
-    assert window.dependency_label.isHidden()
-    assert window.network_label.isHidden()
+    assert not window.status_label.isHidden()
+    assert window.status_label.text() == "Ready"
+    assert window.network_label.text() == "Checking…"
     assert "Status: Ready" in window.log_output.toPlainText()
 
     window._on_status("Downloading at 1 MiB/s")
@@ -276,11 +366,13 @@ def test_statuses_render_in_console_and_live_updates_replace_the_last_line(windo
     assert window.log_output.document().lastBlock().text() == (
         "Status: Downloading at 2 MiB/s"
     )
+    assert window.status_detail.text() == "Downloading at 2 MiB/s"
 
     window._on_error("Download failed")
     assert window.log_output.document().lastBlock().text() == (
         "Status: Download failed"
     )
+    assert window.status_label.property("state") == "error"
 
 
 def test_import_url_list_reports_non_utf8_input(window, monkeypatch, tmp_path):

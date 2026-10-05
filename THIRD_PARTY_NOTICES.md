@@ -4,10 +4,10 @@ YTDLE release executables aggregate the following independent command-line progr
 
 ## FFmpeg
 
-- Version: `2026-09-10-git-fd7c73d01e-full_build-www.gyan.dev`
+- Version: `2026-10-01-git-0b01ed76aa-full_build-www.gyan.dev`
 - Project: https://ffmpeg.org/
 - Windows build provider: https://www.gyan.dev/ffmpeg/builds/
-- Corresponding source commit: https://github.com/FFmpeg/FFmpeg/commit/fd7c73d01e
+- Corresponding source commit: https://github.com/FFmpeg/FFmpeg/commit/0b01ed76aa
 - License: GNU General Public License version 3 (GPLv3), as reported by the distributed full build.
 
 ## aria2
